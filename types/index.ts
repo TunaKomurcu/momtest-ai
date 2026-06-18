@@ -89,3 +89,77 @@ export interface ConversationMessage {
   sender: 'agent' | 'participant'
   content: string
 }
+
+// ---------------------------------------------------------------------------
+// Generate API — app/api/generate/[projectId]/route.ts
+// ---------------------------------------------------------------------------
+
+/** POST /api/generate/[projectId] başarılı yanıt datası (streaming öncesi meta) */
+export interface GenerateResponseData {
+  researchBriefSaved: boolean
+  interviewScriptSaved: boolean
+}
+
+/**
+ * Skill 2 — Assumption Map tablosundaki tek bir satır
+ */
+export interface AssumptionRow {
+  assumption: string
+  riskLevel: 'high' | 'medium' | 'low'
+  whatToAskAbout: string
+  strongEvidence: string
+  weakEvidence: string
+}
+
+/**
+ * projects.research_brief JSONB alanında saklanan tam yapı.
+ * Skill 1 output + Skill 2 assumption map içerir.
+ */
+export interface FullResearchBrief {
+  productIdea: string
+  targetCustomer: string
+  coreSituation: string
+  currentBelief: string
+  riskiestAssumption: string
+  interviewObjective: string
+  evidenceNeeded: {
+    strong: string
+    weak: string
+    negative: string
+  }
+  participantCriteria: {
+    mustHave: string[]
+    avoid: string[]
+  }
+  forbiddenQuestions: string[]
+  assumptionMap: AssumptionRow[]
+}
+
+/**
+ * Skill 3 — Interview Script'teki tek bir soru satırı
+ */
+export interface InterviewQuestion {
+  order: number
+  question: string
+  signalSought: string
+  whyItPasses: string
+}
+
+/**
+ * projects.interview_script JSONB alanında saklanan tam yapı.
+ * Skill 3 output formatına uygun.
+ */
+export interface InterviewScript {
+  goal: string
+  rulesForInterviewer: string[]
+  questions: InterviewQuestion[]
+}
+
+/**
+ * Streaming response chunk tipi.
+ * İstemci tarafında SSE parse ederken kullanılır.
+ */
+export interface GenerateStreamChunk {
+  stage: 'research_brief' | 'interview_script' | 'done' | 'error'
+  content: string
+}
