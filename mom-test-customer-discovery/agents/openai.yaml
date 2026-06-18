@@ -1,0 +1,5 @@
+interface:
+  display_name: "Mom Test Customer Discovery"
+  short_description: "Designs customer discovery interviews and evidence reports using Mom Test principles."
+  icon: "💬"
+  brand_color: "#111827"
