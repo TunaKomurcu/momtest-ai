@@ -197,3 +197,79 @@ export interface GenerateStreamChunk {
   stage: 'research_brief' | 'interview_script' | 'done' | 'error'
   content: string
 }
+
+// ---------------------------------------------------------------------------
+// Analyze API — app/api/analyze/[interviewId]/route.ts
+// ---------------------------------------------------------------------------
+
+/** Tek bir sinyal kaydı — alıntı + kaynak mesaj ID'si */
+export interface SignalEntry {
+  quote: string
+  message_id: string
+}
+
+/**
+ * interviews.signal_score JSONB alanında saklanan yapı.
+ * Skill 6 çıktısına göre dört kategoriye ayrılmış sinyal kayıtları.
+ */
+export interface SignalScore {
+  strong: SignalEntry[]
+  medium: SignalEntry[]
+  weak: SignalEntry[]
+  negative: SignalEntry[]
+}
+
+/**
+ * Analizin özet sayım bilgisi.
+ * Webhook payload ve API yanıtında kullanılır.
+ */
+export interface SignalSummary {
+  strong_count: number
+  medium_count: number
+  weak_count: number
+  negative_count: number
+}
+
+/**
+ * POST /api/analyze/[interviewId] başarılı yanıt datası.
+ */
+export interface AnalyzeResponseData {
+  decision: string
+  signalSummary: SignalSummary
+  evidenceReportSaved: boolean
+  signalScoreSaved: boolean
+}
+
+/**
+ * Make.com'a gönderilen analysis_completed webhook payload'u.
+ */
+export interface AnalysisCompletedWebhookPayload {
+  event: 'analysis_completed'
+  interview_id: string
+  project_id: string
+  participant_name: string
+  signal_summary: SignalSummary
+  decision: string
+  analyzed_at: string
+}
+
+/**
+ * LLM'den dönen yapılandırılmış analiz çıktısı.
+ * JSON olarak parse edilir.
+ */
+export interface StructuredAnalysis {
+  decision: string
+  summary: string
+  signalScore: {
+    problemEvidence: 'strong' | 'medium' | 'weak' | 'negative'
+    urgency: 'strong' | 'medium' | 'weak' | 'negative'
+    workaroundEvidence: 'strong' | 'medium' | 'weak' | 'negative'
+    budgetOrCommitment: 'strong' | 'medium' | 'weak' | 'negative'
+  }
+  strongEvidence: Array<{ quote: string; message_id: string; whyItMatters: string }>
+  mediumEvidence: Array<{ quote: string; message_id: string; context: string }>
+  weakEvidence: Array<{ quote: string; message_id: string; whyItIsWeak: string }>
+  negativeEvidence: string[]
+  openQuestions: string[]
+  recommendedNextStep: string
+}
