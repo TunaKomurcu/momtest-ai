@@ -324,9 +324,14 @@ export async function POST(
     )
   }
 
-  // --- OpenAI config ---
+  // --- Gemini config (OpenAI SDK uyumluluk katmanı) ---
   const agentConfig = loadOpenAIConfig()
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  const openai = new OpenAI({
+    apiKey: process.env.GOOGLE_AI_API_KEY,
+    baseURL:
+      agentConfig.model?.base_url ??
+      'https://generativelanguage.googleapis.com/v1beta/openai/',
+  })
 
   // Intake konuşmasını tek string'e çevir (LLM bağlamı için)
   const intakeTranscript = intakeMessages
@@ -347,9 +352,9 @@ export async function POST(
         // ADIM 1: Research Brief (Skill 2)
         // ----------------------------------------------------------------
         const briefStream = await openai.chat.completions.create({
-          model: agentConfig.model ?? 'gpt-4o-mini',
-          temperature: agentConfig.temperature ?? 0.3,
-          max_tokens: agentConfig.max_tokens ?? 1500,
+          model: agentConfig.model?.name ?? 'gemini-2.0-flash',
+          temperature: agentConfig.model?.temperature ?? 0.3,
+          max_tokens: agentConfig.model?.max_tokens ?? 1500,
           stream: true,
           messages: [
             { role: 'system', content: RESEARCH_BRIEF_SYSTEM_PROMPT },
@@ -387,9 +392,9 @@ export async function POST(
         // ADIM 2: Interview Script (Skill 3)
         // ----------------------------------------------------------------
         const scriptStream = await openai.chat.completions.create({
-          model: agentConfig.model ?? 'gpt-4o-mini',
-          temperature: agentConfig.temperature ?? 0.4,
-          max_tokens: agentConfig.max_tokens ?? 2000,
+          model: agentConfig.model?.name ?? 'gemini-2.0-flash',
+          temperature: agentConfig.model?.temperature ?? 0.4,
+          max_tokens: agentConfig.model?.max_tokens ?? 2000,
           stream: true,
           messages: [
             { role: 'system', content: INTERVIEW_SCRIPT_SYSTEM_PROMPT },

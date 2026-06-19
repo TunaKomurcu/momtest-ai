@@ -65,19 +65,53 @@ export interface IntakeCompletionStatus {
 }
 
 // ---------------------------------------------------------------------------
-// OpenAI config — openai.yaml dosyasından parse edilen yapı
+// OpenAI / Gemini config — openai.yaml dosyasından parse edilen yapı
 // ---------------------------------------------------------------------------
 
+/**
+ * openai.yaml şemasını yansıtır.
+ * model alanı nested bir obje — provider, name, base_url, temperature, max_tokens içerir.
+ */
 export interface OpenAIAgentConfig {
-  interface: {
+  interface?: {
     display_name: string
     short_description: string
     icon: string
     brand_color: string
   }
-  model?: string
-  temperature?: number
-  max_tokens?: number
+  model?: {
+    provider?: string
+    name?: string
+    base_url?: string
+    temperature?: number
+    max_tokens?: number
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Interview API — app/api/interview/[interviewId]/route.ts
+// ---------------------------------------------------------------------------
+
+/** POST /api/interview/[interviewId] istek gövdesi */
+export interface InterviewRequestBody {
+  message: string
+  participant_name: string
+}
+
+/** POST /api/interview/[interviewId] başarılı yanıt datası */
+export interface InterviewResponseData {
+  reply: string
+  isComplete: boolean
+}
+
+/** Make.com'a gönderilen interview_completed webhook payload'u */
+export interface InterviewCompletedWebhookPayload {
+  event: 'interview_completed'
+  interview_id: string
+  project_id: string
+  participant_name: string
+  message_count: number
+  completed_at: string
 }
 
 // ---------------------------------------------------------------------------

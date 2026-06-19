@@ -279,10 +279,13 @@ export async function POST(
     history = []
   }
 
-  // --- OpenAI config yükle ---
+  // --- Gemini config (OpenAI SDK uyumluluk katmanı) ---
   const agentConfig = loadOpenAIConfig()
   const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: process.env.GOOGLE_AI_API_KEY,
+    baseURL:
+      agentConfig.model?.base_url ??
+      'https://generativelanguage.googleapis.com/v1beta/openai/',
   })
 
   // --- Completion status — OpenAI'ya ek bağlam için ---
@@ -316,9 +319,9 @@ export async function POST(
   let agentReply: string
   try {
     const completion = await openai.chat.completions.create({
-      model: agentConfig.model ?? 'gpt-4o-mini',
-      temperature: agentConfig.temperature ?? 0.4,
-      max_tokens: agentConfig.max_tokens ?? 512,
+      model: agentConfig.model?.name ?? 'gemini-2.0-flash',
+      temperature: agentConfig.model?.temperature ?? 0.4,
+      max_tokens: agentConfig.model?.max_tokens ?? 512,
       messages: openaiMessages,
     })
 
