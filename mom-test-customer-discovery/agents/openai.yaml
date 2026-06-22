@@ -3,12 +3,11 @@ interface:
   short_description: "Designs customer discovery interviews and evidence reports using Mom Test principles."
   icon: "💬"
   brand_color: "#111827"
-
+  
 model:
-  provider: "google"
-  name: "gemini-2.0-flash"  # veya güncel flash modeli
-  base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+  provider: "groq"
+  name: "llama-3.3-70b-versatile"
+  base_url: "https://api.groq.com/openai/v1"
   temperature: 0.7
   max_tokens: 1024
-
   

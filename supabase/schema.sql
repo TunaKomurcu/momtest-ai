@@ -21,7 +21,6 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 
 COMMENT ON TABLE public.profiles IS 'Supabase Auth kullanıcılarıyla birebir senkronize profil tablosu.';
 
--- Yeni auth kaydında otomatik profil oluşturan trigger fonksiyonu
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -34,7 +33,8 @@ BEGIN
         NEW.email,
         NEW.raw_user_meta_data ->> 'full_name',
         NEW.raw_user_meta_data ->> 'avatar_url'
-    );
+    )
+    ON CONFLICT (id) DO NOTHING;
     RETURN NEW;
 END;
 $$;

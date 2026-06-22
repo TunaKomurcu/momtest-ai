@@ -89,8 +89,8 @@ function loadOpenAIConfig(): Partial<OpenAIAgentConfig> {
     const yamlPath = path.join(process.cwd(), 'mom-test-customer-discovery', 'agents', 'openai.yaml')
     const raw = fs.readFileSync(yamlPath, 'utf-8')
     return yaml.load(raw) as Partial<OpenAIAgentConfig>
-  } catch {
-    console.warn('[Intake] openai.yaml okunamadı, varsayılan değerler kullanılıyor.')
+  } catch (err) {
+    console.warn('[Intake] openai.yaml okunamadı, varsayılan değerler kullanılıyor. Hata:', err)
     return {}
   }
 }
@@ -279,13 +279,18 @@ export async function POST(
     history = []
   }
 
-  // --- Gemini config (OpenAI SDK uyumluluk katmanı) ---
+  // --- Groq config (OpenAI SDK uyumluluk katmanı) ---
   const agentConfig = loadOpenAIConfig()
+
+  // DEBUG — Groq API key varlığını ve yüklenen config'i logla
+  console.log('[DEBUG] GROQ_API_KEY exists:', !!process.env.GROQ_API_KEY)
+  console.log('[DEBUG] agentConfig:', JSON.stringify(agentConfig))
+
   const openai = new OpenAI({
-    apiKey: process.env.GOOGLE_AI_API_KEY,
+    apiKey: process.env.GROQ_API_KEY,
     baseURL:
       agentConfig.model?.base_url ??
-      'https://generativelanguage.googleapis.com/v1beta/openai/',
+      'https://api.groq.com/openai/v1',
   })
 
   // --- Completion status — OpenAI'ya ek bağlam için ---
@@ -315,11 +320,11 @@ export async function POST(
     { role: 'user', content: userMessage },
   ]
 
-  // --- OpenAI çağrısı ---
+  // --- Groq çağrısı ---
   let agentReply: string
   try {
     const completion = await openai.chat.completions.create({
-      model: agentConfig.model?.name ?? 'gemini-2.0-flash',
+      model: agentConfig.model?.name ?? 'llama-3.3-70b-versatile',
       temperature: agentConfig.model?.temperature ?? 0.4,
       max_tokens: agentConfig.model?.max_tokens ?? 512,
       messages: openaiMessages,
@@ -328,10 +333,10 @@ export async function POST(
     agentReply = completion.choices[0]?.message?.content?.trim() ?? ''
 
     if (!agentReply) {
-      throw new Error('OpenAI boş yanıt döndürdü.')
+      throw new Error('Groq boş yanıt döndürdü.')
     }
   } catch (err) {
-    console.error('[Intake] OpenAI çağrısı başarısız:', err)
+    console.error('[Intake] Groq çağrısı başarısız:', err)
     return NextResponse.json(
       { data: null, error: 'Yapay zeka yanıtı alınamadı. Lütfen tekrar deneyin.' },
       { status: 500 }

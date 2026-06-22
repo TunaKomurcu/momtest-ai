@@ -327,10 +327,10 @@ export async function POST(
   // --- Gemini config (OpenAI SDK uyumluluk katmanı) ---
   const agentConfig = loadOpenAIConfig()
   const openai = new OpenAI({
-    apiKey: process.env.GOOGLE_AI_API_KEY,
+    apiKey: process.env.GROQ_API_KEY,
     baseURL:
       agentConfig.model?.base_url ??
-      'https://generativelanguage.googleapis.com/v1beta/openai/',
+      'https://api.groq.com/openai/v1',
   })
 
   // Intake konuşmasını tek string'e çevir (LLM bağlamı için)
