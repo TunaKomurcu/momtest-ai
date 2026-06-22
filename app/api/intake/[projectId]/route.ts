@@ -282,12 +282,12 @@ export async function POST(
   // --- Groq config (OpenAI SDK uyumluluk katmanı) ---
   const agentConfig = loadOpenAIConfig()
 
-  // DEBUG — Groq API key varlığını ve yüklenen config'i logla
-  console.log('[DEBUG] GROQ_API_KEY exists:', !!process.env.GROQ_API_KEY)
+  // DEBUG — Google AI API key varlığını ve yüklenen config'i logla
+  console.log('[DEBUG] GOOGLE_AI_API_KEY exists:', !!process.env.GOOGLE_AI_API_KEY)
   console.log('[DEBUG] agentConfig:', JSON.stringify(agentConfig))
 
   const openai = new OpenAI({
-    apiKey: process.env.GROQ_API_KEY,
+    apiKey: process.env.GOOGLE_AI_API_KEY,
     baseURL:
       agentConfig.model?.base_url ??
       'https://api.groq.com/openai/v1',
