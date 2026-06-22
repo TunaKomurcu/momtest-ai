@@ -113,24 +113,26 @@ export function ProjectSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton
-                  size="lg"
-                  className="data-[state=open]:bg-sidebar-accent"
-                >
-                  <Avatar className="size-8 rounded-lg">
-                    <AvatarFallback className="rounded-lg text-xs">
-                      {initials}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex flex-1 flex-col text-left leading-tight">
-                    <span className="truncate text-sm font-medium">Hesap</span>
-                    <span className="text-muted-foreground truncate text-xs">
-                      {userEmail}
-                    </span>
-                  </div>
-                  <ChevronsUpDown className="ml-auto size-4" />
-                </SidebarMenuButton>
+              <DropdownMenuTrigger
+                render={
+                  <SidebarMenuButton
+                    size="lg"
+                    className="data-[state=open]:bg-sidebar-accent"
+                  />
+                }
+              >
+                <Avatar className="size-8 rounded-lg">
+                  <AvatarFallback className="rounded-lg text-xs">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex flex-1 flex-col text-left leading-tight">
+                  <span className="truncate text-sm font-medium">Hesap</span>
+                  <span className="text-muted-foreground truncate text-xs">
+                    {userEmail}
+                  </span>
+                </div>
+                <ChevronsUpDown className="ml-auto size-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 side="top"

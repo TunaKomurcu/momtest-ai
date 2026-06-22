@@ -77,11 +77,9 @@ export function NewProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="w-full" size="sm">
-          <Plus data-icon="inline-start" />
-          Yeni Proje Başlat
-        </Button>
+      <DialogTrigger render={<Button className="w-full" size="sm" />}>
+        <Plus data-icon="inline-start" />
+        Yeni Proje Başlat
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
