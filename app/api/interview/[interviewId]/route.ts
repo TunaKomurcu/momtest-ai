@@ -436,7 +436,7 @@ ${scriptContext}
 
   // --- Kapanış tespiti ---
   const isComplete =
-    isClosingMessage(agentReply) || meaningfulRepliesBeforeThis >= 10
+    (meaningfulRepliesBeforeThis >= 3 && isClosingMessage(agentReply)) || meaningfulRepliesBeforeThis >= 10
 
   // --- Mesajları kaydet (katılımcı + ajan) ---
   try {
