@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
-import yaml from 'js-yaml'
+import { load as yamlLoad } from 'js-yaml'
 import type { Database } from '@/types/database.types'
 import type {
   OpenAIAgentConfig,
@@ -151,7 +151,7 @@ function loadOpenAIConfig(): Partial<OpenAIAgentConfig> {
       'openai.yaml'
     )
     const raw = fs.readFileSync(yamlPath, 'utf-8')
-    return yaml.load(raw) as Partial<OpenAIAgentConfig>
+    return yamlLoad(raw) as Partial<OpenAIAgentConfig>
   } catch {
     console.warn('[Generate] openai.yaml okunamadı, varsayılan değerler kullanılıyor.')
     return {}
@@ -352,7 +352,7 @@ export async function POST(
         // ADIM 1: Research Brief (Skill 2)
         // ----------------------------------------------------------------
         const briefStream = await openai.chat.completions.create({
-          model: agentConfig.model?.name ?? 'gemini-2.0-flash',
+          model: agentConfig.model?.name ?? 'gemini-flash-latest',
           temperature: agentConfig.model?.temperature ?? 0.3,
           max_tokens: agentConfig.model?.max_tokens ?? 1500,
           stream: true,
@@ -392,7 +392,7 @@ export async function POST(
         // ADIM 2: Interview Script (Skill 3)
         // ----------------------------------------------------------------
         const scriptStream = await openai.chat.completions.create({
-          model: agentConfig.model?.name ?? 'gemini-2.0-flash',
+          model: agentConfig.model?.name ?? 'gemini-flash-latest',
           temperature: agentConfig.model?.temperature ?? 0.4,
           max_tokens: agentConfig.model?.max_tokens ?? 2000,
           stream: true,

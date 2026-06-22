@@ -6,8 +6,10 @@ import { createServerClient } from '@supabase/ssr'
  * - /dashboard: kimliği doğrulanmamış kullanıcıyı /auth/login'e yönlendirir.
  * - /api/*: kimliği doğrulanmamış istekleri 401 JSON ile reddeder
  *   (public katılımcı uçları /api/interview ve auth callback hariç).
+ *
+ * Next.js 16: middleware.ts → proxy.ts, export adı middleware → proxy
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request })
 
   const supabase = createServerClient(

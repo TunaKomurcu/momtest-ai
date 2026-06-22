@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
-import yaml from 'js-yaml'
+import { load as yamlLoad } from 'js-yaml'
 import type { Database } from '@/types/database.types' // Pick<> için gerekli
 import type {
   IntakeRequestBody,
@@ -88,7 +88,7 @@ function loadOpenAIConfig(): Partial<OpenAIAgentConfig> {
   try {
     const yamlPath = path.join(process.cwd(), 'mom-test-customer-discovery', 'agents', 'openai.yaml')
     const raw = fs.readFileSync(yamlPath, 'utf-8')
-    return yaml.load(raw) as Partial<OpenAIAgentConfig>
+    return yamlLoad(raw) as Partial<OpenAIAgentConfig>
   } catch (err) {
     console.warn('[Intake] openai.yaml okunamadı, varsayılan değerler kullanılıyor. Hata:', err)
     return {}
@@ -155,6 +155,12 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> }
 ): Promise<NextResponse<ApiResponse<IntakeResponseData>>> {
+  // --- ENV DEBUG — her istek başında ortam değişkenlerini logla ---
+  console.log('[DEBUG] ENV CHECK:', {
+    hasGoogleKey: !!process.env.GOOGLE_AI_API_KEY,
+    nodeEnv: process.env.NODE_ENV,
+  })
+
   // --- Rate limiting ---
   const ip =
     request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
@@ -240,7 +246,7 @@ export async function POST(
   } catch (err) {
     console.error('[Intake] Beklenmeyen hata (proje sorgusu):', err)
     return NextResponse.json(
-      { data: null, error: 'Sunucu hatası.' },
+      { data: null, error: err instanceof Error ? err.message : String(err) },
       { status: 500 }
     )
   }
@@ -279,11 +285,8 @@ export async function POST(
     history = []
   }
 
-  // --- Groq config (OpenAI SDK uyumluluk katmanı) ---
+  // --- LLM config ---
   const agentConfig = loadOpenAIConfig()
-
-  // DEBUG — Google AI API key varlığını ve yüklenen config'i logla
-  console.log('[DEBUG] GOOGLE_AI_API_KEY exists:', !!process.env.GOOGLE_AI_API_KEY)
   console.log('[DEBUG] agentConfig:', JSON.stringify(agentConfig))
 
   const openai = new OpenAI({
@@ -324,7 +327,7 @@ export async function POST(
   let agentReply: string
   try {
     const completion = await openai.chat.completions.create({
-      model: agentConfig.model?.name ?? 'llama-3.3-70b-versatile',
+      model: agentConfig.model?.name ?? 'gemini-flash-latest',
       temperature: agentConfig.model?.temperature ?? 0.4,
       max_tokens: agentConfig.model?.max_tokens ?? 512,
       messages: openaiMessages,
@@ -338,7 +341,7 @@ export async function POST(
   } catch (err) {
     console.error('[Intake] Groq çağrısı başarısız:', err)
     return NextResponse.json(
-      { data: null, error: 'Yapay zeka yanıtı alınamadı. Lütfen tekrar deneyin.' },
+      { data: null, error: err instanceof Error ? err.message : String(err) },
       { status: 500 }
     )
   }

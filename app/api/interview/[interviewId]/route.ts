@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
-import yaml from 'js-yaml'
+import { load as yamlLoad } from 'js-yaml'
 import type { Database } from '@/types/database.types'
 import type {
   InterviewRequestBody,
@@ -127,7 +127,7 @@ function loadAgentConfig(): Partial<OpenAIAgentConfig> {
       'openai.yaml'
     )
     const raw = fs.readFileSync(yamlPath, 'utf-8')
-    return yaml.load(raw) as Partial<OpenAIAgentConfig>
+    return yamlLoad(raw) as Partial<OpenAIAgentConfig>
   } catch {
     console.warn('[Interview] openai.yaml okunamadı, varsayılan değerler kullanılıyor.')
     return {}
@@ -415,7 +415,7 @@ ${scriptContext}
   let agentReply: string
   try {
     const completion = await openai.chat.completions.create({
-      model: agentConfig.model?.name ?? 'gemini-2.0-flash',
+      model: agentConfig.model?.name ?? 'gemini-flash-latest',
       temperature: agentConfig.model?.temperature ?? 0.7,
       max_tokens: agentConfig.model?.max_tokens ?? 512,
       messages: llmMessages,
