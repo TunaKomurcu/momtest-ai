@@ -16,6 +16,7 @@ import {
 import type { Interview } from '@/types/database.types'
 import type { ApiResponse, AnalyzeResponseData } from '@/types/index'
 import type { ProjectStatus } from '@/lib/project-status'
+import { ProjectSummaryBar } from '@/components/dashboard/project-summary-bar'
 
 type InterviewSummary = Pick<
   Interview,
@@ -112,15 +113,8 @@ export function InterviewManager({
           return
         }
 
-        // Mark this interview as analyzed in local state
-        setInterviews(prev =>
-          prev.map(i =>
-            i.id === interviewId
-              ? { ...i, evidence_report: 'analyzed' }
-              : i
-          )
-        )
-
+        // Analiz tamamlandı — listeyi yeniden çekerek signal_score'u da güncelle
+        await loadInterviews()
         onStatusChange?.(projectId, 'analyzed')
       } catch {
         setError('Ağ hatası. Lütfen tekrar deneyin.')
@@ -140,6 +134,9 @@ export function InterviewManager({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Proje bazlı konsolide özet — en az 1 analiz varsa görünür */}
+      {!loading && <ProjectSummaryBar interviews={interviews} />}
+
       <div className="flex items-center justify-between gap-3">
         <div className="flex flex-col">
           <h3 className="text-sm font-semibold">Mülakat Bağlantıları</h3>
