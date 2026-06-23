@@ -42,7 +42,7 @@ export async function proxy(request: NextRequest) {
   const isPublicApi = pathname.startsWith('/api/interview')
 
   // Sayfa koruması: /dashboard
-  if (!user && pathname.startsWith('/dashboard')) {
+  if (!user && (pathname.startsWith('/dashboard') || pathname.startsWith('/report'))) {
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/auth/login'
     loginUrl.searchParams.set('redirectedFrom', pathname)

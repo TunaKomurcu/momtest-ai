@@ -82,6 +82,11 @@ function ProjectBody({
     () => project.status !== 'intake'
   )
 
+  // update client side project:
+  const [scriptReady, setScriptReady] = useState(
+    () => project.interview_script != null
+  )
+
   // Proje değişince (key sayesinde remount olur ama yine de güvenli olalım).
   useEffect(() => {
     setIntakeComplete(project.status !== 'intake')
@@ -107,6 +112,7 @@ function ProjectBody({
   }
 
   function handleGenerateDone() {
+    setScriptReady(true)
     if (project.status === 'intake') {
       onStatusChange(project.id, 'brief_ready')
     }
@@ -164,7 +170,7 @@ function ProjectBody({
                   projectId={project.id}
                   onDone={handleGenerateDone}
                 />
-                {project.interview_script && (
+                {scriptReady && (
                   <>
                     <Separator />
                     <InterviewManager
