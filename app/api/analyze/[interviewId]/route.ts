@@ -518,23 +518,6 @@ export async function POST(
     console.error('[Analyze] Beklenmeyen hata (interview güncelleme):', err)
   }
 
-  // --- projects.status = 'analyzed' yap ---
-  try {
-    const { error: projectUpdateError } = await supabase
-      .from('projects')
-      .update({ research_brief: { analyzed: true } })
-      .eq('id', interview.project_id)
-
-    // projects tablosunda status sütunu şema'da yok; research_brief JSONB'e analyzed flag eklenir.
-    // Gerçek bir status sütunu eklenirse bu blok güncellenmeli.
-    if (projectUpdateError) {
-      console.error(
-        `[Supabase Error] Proje analyzed güncelleme başarısız: ${projectUpdateError.message} (${projectUpdateError.code})`
-      )
-    }
-  } catch (err) {
-    console.error('[Analyze] Beklenmeyen hata (proje güncelleme):', err)
-  }
 
   // --- Make.com webhook — fire-and-forget ---
   const webhookUrl = process.env.MAKE_WEBHOOK_ANALYSIS_URL
