@@ -216,6 +216,16 @@ export function InterviewManager({
 
                 {/* Actions */}
                 <div className="flex shrink-0 items-center gap-1">
+                  {isAnalyzed && (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open(`/report/${interview.id}`, '_blank')}
+                        title="Raporu gör"
+                    >
+                        Raporu Gör
+                    </Button>
+                    )}
                   {canAnalyze && (
                     <Button
                       variant="outline"

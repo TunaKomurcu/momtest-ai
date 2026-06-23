@@ -137,6 +137,9 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
               Bu kısa bir araştırma görüşmesidir. Doğru veya yanlış cevap yoktur
               — sadece gerçek deneyiminizi anlamak istiyoruz.
             </p>
+            <p className="text-muted-foreground text-xs">
+              ⏱ Yaklaşık 8–10 dakika sürer.
+            </p>
           </div>
 
           <div className="flex flex-col gap-3">
