@@ -204,6 +204,21 @@ export function IntakeChat({
   )
 }
 
+function renderMarkdown(text: string): React.ReactNode {
+  return text.split('\n').map((line, lineIdx) => (
+    <span key={lineIdx}>
+      {lineIdx > 0 && <br />}
+      {line.split(/(\*\*[^*\n]+\*\*)/).map((part, partIdx) =>
+        part.startsWith('**') && part.endsWith('**') ? (
+          <strong key={partIdx}>{part.slice(2, -2)}</strong>
+        ) : (
+          <span key={partIdx}>{part}</span>
+        )
+      )}
+    </span>
+  ))
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isAgent = message.sender === 'agent'
 
@@ -232,13 +247,13 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       </span>
       <div
         className={cn(
-          'max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap',
+          'max-w-[80%] rounded-lg px-3 py-2 text-sm',
           isAgent
             ? 'bg-muted text-foreground'
             : 'bg-primary text-primary-foreground'
         )}
       >
-        {display}
+        {renderMarkdown(display)}
       </div>
     </div>
   )

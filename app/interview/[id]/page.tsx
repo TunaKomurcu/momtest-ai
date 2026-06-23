@@ -22,9 +22,10 @@ export default async function InterviewPage({
         <div className="bg-primary/10 mb-4 flex size-12 items-center justify-center rounded-xl">
           <Compass className="text-primary size-6" />
         </div>
-        <h1 className="text-lg font-semibold">Interview Not Found</h1>
+        <h1 className="text-lg font-semibold">Mülakat Bulunamadı</h1>
         <p className="text-muted-foreground mt-2 max-w-sm text-sm text-balance">
-          This interview link is invalid or has expired. Please ask the researcher for a new link.
+          Bu mülakat bağlantısı geçersiz veya süresi dolmuş. Araştırmacıdan
+          yeni bir bağlantı isteyin.
         </p>
       </main>
     )
@@ -36,9 +37,10 @@ export default async function InterviewPage({
         <div className="bg-emerald-500/15 mb-4 flex size-12 items-center justify-center rounded-xl">
           <Compass className="text-emerald-400 size-6" />
         </div>
-        <h1 className="text-lg font-semibold">Interview Already Completed</h1>
+        <h1 className="text-lg font-semibold">Mülakat Tamamlandı</h1>
         <p className="text-muted-foreground mt-2 max-w-sm text-sm text-balance">
-          This interview session has already been completed. Thank you for your participation!
+          Bu mülakat oturumu zaten tamamlandı. Katılımınız için teşekkür
+          ederiz!
         </p>
       </main>
     )

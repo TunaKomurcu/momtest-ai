@@ -35,13 +35,11 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
 
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }, [messages, sending])
 
-  // Send a "Ready" trigger message to get the interviewer's opening frame
   const startInterview = useCallback(async () => {
     const name = nameInput.trim()
     if (!name || name.length < 2) return
@@ -59,7 +57,7 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
       const payload = (await res.json()) as ApiResponse<InterviewResponseData>
 
       if (!res.ok || payload.error || !payload.data) {
-        setError(payload.error ?? 'Failed to start interview. Please try again.')
+        setError(payload.error ?? 'Mülakat başlatılamadı. Lütfen tekrar deneyin.')
         return
       }
 
@@ -69,7 +67,7 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
       ])
       setPhase(payload.data.isComplete ? 'done' : 'chat')
     } catch {
-      setError('Network error. Please check your connection and try again.')
+      setError('Ağ hatası. Bağlantınızı kontrol edip tekrar deneyin.')
     } finally {
       setStarting(false)
     }
@@ -83,7 +81,6 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
     setSending(true)
     setInput('')
 
-    // Optimistic update
     setMessages(prev => [
       ...prev,
       { sender: 'participant', content: text, localId: makeId() },
@@ -99,7 +96,8 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
       const payload = (await res.json()) as ApiResponse<InterviewResponseData>
 
       if (!res.ok || payload.error || !payload.data) {
-        setError(payload.error ?? 'Failed to get a response. Please try again.')
+        setError(payload.error ?? 'Yanıt alınamadı. Lütfen tekrar deneyin.')
+        setSending(false)
         return
       }
 
@@ -112,7 +110,7 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
         setPhase('done')
       }
     } catch {
-      setError('Network error. Please try again.')
+      setError('Ağ hatası. Lütfen tekrar deneyin.')
     } finally {
       setSending(false)
     }
@@ -125,7 +123,7 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
     }
   }
 
-  // ── Name entry screen ────────────────────────────────────────────────────
+  // ── İsim giriş ekranı ────────────────────────────────────────────────────
   if (phase === 'name') {
     return (
       <div className="flex min-h-screen flex-1 items-center justify-center p-6">
@@ -134,19 +132,19 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
             <div className="bg-primary/10 mb-2 flex size-12 items-center justify-center rounded-xl">
               <Compass className="text-primary size-6" />
             </div>
-            <h1 className="text-lg font-semibold">Customer Research Interview</h1>
+            <h1 className="text-lg font-semibold">Müşteri Araştırma Mülakatı</h1>
             <p className="text-muted-foreground text-sm text-balance">
-              This is a short research conversation. There are no right or wrong
-              answers — we just want to understand your real experience.
+              Bu kısa bir araştırma görüşmesidir. Doğru veya yanlış cevap yoktur
+              — sadece gerçek deneyiminizi anlamak istiyoruz.
             </p>
           </div>
 
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="participant-name">Your first name</Label>
+              <Label htmlFor="participant-name">Adınız</Label>
               <Input
                 id="participant-name"
-                placeholder="e.g. Sarah"
+                placeholder="örn. Ayşe"
                 value={nameInput}
                 onChange={e => setNameInput(e.target.value)}
                 onKeyDown={e => {
@@ -156,16 +154,14 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
               />
             </div>
 
-            {error && (
-              <p className="text-destructive text-xs">{error}</p>
-            )}
+            {error && <p className="text-destructive text-xs">{error}</p>}
 
             <Button
               onClick={() => void startInterview()}
               disabled={starting || nameInput.trim().length < 2}
             >
               {starting && <Spinner data-icon="inline-start" />}
-              {starting ? 'Starting...' : 'Begin Interview'}
+              {starting ? 'Başlanıyor...' : 'Mülakata Başla'}
             </Button>
           </div>
         </div>
@@ -173,7 +169,7 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
     )
   }
 
-  // ── Thank you screen ─────────────────────────────────────────────────────
+  // ── Teşekkür ekranı ──────────────────────────────────────────────────────
   if (phase === 'done') {
     return (
       <div className="flex min-h-screen flex-1 items-center justify-center p-6">
@@ -182,32 +178,30 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
             <Compass className="text-emerald-400 size-6" />
           </div>
           <h1 className="text-lg font-semibold">
-            Thank you, {participantName}!
+            Teşekkürler, {participantName}!
           </h1>
           <p className="text-muted-foreground text-sm text-balance">
-            This has been really helpful. Your answers will help shape better
-            products. You can close this window.
+            Bu gerçekten çok yardımcı oldu. Cevaplarınız daha iyi ürünler
+            oluşturmaya katkı sağlayacak. Bu pencereyi kapatabilirsiniz.
           </p>
         </div>
       </div>
     )
   }
 
-  // ── Chat screen ──────────────────────────────────────────────────────────
+  // ── Sohbet ekranı ────────────────────────────────────────────────────────
   return (
     <div className="flex h-svh flex-col">
-      {/* Header */}
       <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
         <div className="bg-primary/10 flex size-7 items-center justify-center rounded-lg">
           <Compass className="text-primary size-4" />
         </div>
-        <span className="text-sm font-semibold">Research Interview</span>
+        <span className="text-sm font-semibold">Araştırma Mülakatı</span>
         <span className="text-muted-foreground ml-auto text-xs">
           {participantName}
         </span>
       </header>
 
-      {/* Messages */}
       <ScrollArea className="min-h-0 flex-1">
         <div
           ref={scrollRef}
@@ -224,14 +218,13 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
               </span>
               <span className="text-muted-foreground flex items-center gap-2 text-sm">
                 <Spinner className="size-3.5" />
-                Thinking...
+                Düşünüyor...
               </span>
             </div>
           )}
         </div>
       </ScrollArea>
 
-      {/* Input */}
       <div className="border-t p-3">
         <div className="mx-auto max-w-2xl">
           {error && (
@@ -242,7 +235,7 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Type your response... (Enter to send)"
+              placeholder="Cevabınızı yazın... (Göndermek için Enter)"
               disabled={sending}
               rows={2}
               className="max-h-36 min-h-0 resize-none"
@@ -252,7 +245,7 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
               size="icon"
               onClick={() => void handleSend()}
               disabled={sending || !input.trim()}
-              aria-label="Send"
+              aria-label="Gönder"
             >
               {sending ? (
                 <Spinner />
@@ -265,6 +258,21 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
       </div>
     </div>
   )
+}
+
+function renderMarkdown(text: string): React.ReactNode {
+  return text.split('\n').map((line, lineIdx) => (
+    <span key={lineIdx}>
+      {lineIdx > 0 && <br />}
+      {line.split(/(\*\*[^*\n]+\*\*)/).map((part, partIdx) =>
+        part.startsWith('**') && part.endsWith('**') ? (
+          <strong key={partIdx}>{part.slice(2, -2)}</strong>
+        ) : (
+          <span key={partIdx}>{part}</span>
+        )
+      )}
+    </span>
+  ))
 }
 
 function MessageBubble({ message }: { message: ChatMessage }) {
@@ -289,13 +297,13 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       </span>
       <div
         className={cn(
-          'max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap',
+          'max-w-[80%] rounded-lg px-3 py-2 text-sm',
           isAgent
             ? 'bg-muted text-foreground'
             : 'bg-primary text-primary-foreground'
         )}
       >
-        {message.content}
+        {renderMarkdown(message.content)}
       </div>
     </div>
   )

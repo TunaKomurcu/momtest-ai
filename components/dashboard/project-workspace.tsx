@@ -17,6 +17,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Compass, Lightbulb, MessagesSquare } from 'lucide-react'
+import { InterviewManager } from '@/components/dashboard/interview-manager'
 
 export function ProjectWorkspace({
   project,
@@ -113,23 +114,15 @@ function ProjectBody({
 
   // Intake aktif değilse (interviewing / analyzed) salt-detay görünümü.
   if (!isIntakeActive(project.status)) {
-    return (
-      <div className="flex flex-1 items-center justify-center p-6">
-        <Empty className="max-w-md border">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <MessagesSquare />
-            </EmptyMedia>
-            <EmptyTitle>Bu proje intake aşamasını tamamladı</EmptyTitle>
-            <EmptyDescription>
-              Araştırma özeti ve mülakat scripti hazır. Mülakat ve analiz
-              görünümleri ayrı sayfalardan yönetilir.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      </div>
-    )
-  }
+  return (
+    <div className="flex flex-1 flex-col overflow-auto p-5">
+      <InterviewManager
+        projectId={project.id}
+        onStatusChange={onStatusChange}
+      />
+    </div>
+  )
+}
 
   return (
     <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-2">
@@ -171,6 +164,15 @@ function ProjectBody({
                   projectId={project.id}
                   onDone={handleGenerateDone}
                 />
+                {project.interview_script && (
+                  <>
+                    <Separator />
+                    <InterviewManager
+                      projectId={project.id}
+                      onStatusChange={onStatusChange}
+                    />
+                  </>
+                )}
               </>
             )}
           </div>
