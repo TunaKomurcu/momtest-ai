@@ -5,8 +5,8 @@ interface:
   brand_color: "#111827"
   
 model:
-  provider: "google"
-  name: "gemini-flash-latest"
-  base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+  provider: "openai"
+  name: "gpt-4o-mini"
+  base_url: "https://api.openai.com/v1"
   temperature: 0.7
   max_tokens: 1024

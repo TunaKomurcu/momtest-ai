@@ -376,7 +376,7 @@ export async function POST(
   // --- Gemini config (OpenAI SDK uyumluluk katmanı) ---
   const agentConfig = loadAgentConfig()
   const openai = new OpenAI({
-    apiKey: process.env.GOOGLE_AI_API_KEY,
+    apiKey: process.env.OPENAI_API_KEY,
     baseURL:
       agentConfig.model?.base_url ??
       'https://api.groq.com/openai/v1',

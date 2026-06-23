@@ -157,7 +157,7 @@ export async function POST(
 ): Promise<NextResponse<ApiResponse<IntakeResponseData>>> {
   // --- ENV DEBUG — her istek başında ortam değişkenlerini logla ---
   console.log('[DEBUG] ENV CHECK:', {
-    hasGoogleKey: !!process.env.GOOGLE_AI_API_KEY,
+    hasOpenAIKey: !!process.env.OPENAI_API_KEY,
     nodeEnv: process.env.NODE_ENV,
   })
 
@@ -290,7 +290,7 @@ export async function POST(
   console.log('[DEBUG] agentConfig:', JSON.stringify(agentConfig))
 
   const openai = new OpenAI({
-    apiKey: process.env.GOOGLE_AI_API_KEY,
+    apiKey: process.env.OPENAI_API_KEY,
     baseURL:
       agentConfig.model?.base_url ??
       'https://api.groq.com/openai/v1',
