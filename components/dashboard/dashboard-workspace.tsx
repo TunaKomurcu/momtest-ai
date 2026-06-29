@@ -30,6 +30,19 @@ export function DashboardWorkspace({
     setSelectedId(project.id)
   }, [])
 
+  const handleProjectDeleted = useCallback(
+    (projectId: string) => {
+      setProjects((prev) => prev.filter((p) => p.id !== projectId))
+      // Silinen proje seçiliyse bir sonraki projeye geç, yoksa null
+      setSelectedId((prev) => {
+        if (prev !== projectId) return prev
+        const remaining = projects.filter((p) => p.id !== projectId)
+        return remaining[0]?.id ?? null
+      })
+    },
+    [projects]
+  )
+
   const handleStatusChange = useCallback(
     (projectId: string, status: ProjectStatus) => {
       setProjects((prev) =>
@@ -47,6 +60,7 @@ export function DashboardWorkspace({
         userEmail={userEmail}
         onSelect={setSelectedId}
         onProjectCreated={handleProjectCreated}
+        onProjectDeleted={handleProjectDeleted}
       />
       <SidebarInset className="h-svh overflow-hidden">
         <ProjectWorkspace
