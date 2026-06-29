@@ -19,11 +19,11 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty'
-import { Compass, FileText, Lightbulb, MessagesSquare, Users } from 'lucide-react'
+import { Compass, FileText, Lightbulb, MessageSquareText, MessagesSquare, Users } from 'lucide-react'
 
 // ── Sekme tipi ────────────────────────────────────────────────────────────────
 
-type WorkspaceTab = 'briefs' | 'interviews'
+type WorkspaceTab = 'briefs' | 'interviews' | 'intake'
 
 // ── ProjectWorkspace ──────────────────────────────────────────────────────────
 
@@ -280,6 +280,12 @@ function TabbedWorkspace({
           label="Araştırma Dökümanları"
           badge={hasBriefs ? undefined : undefined}
         />
+        <WorkspaceTabButton
+          active={activeTab === 'intake'}
+          onClick={() => setActiveTab('intake')}
+          icon={<MessageSquareText className="size-3.5" />}
+          label="Intake Geçmişi"
+        />
       </div>
 
       {/* Sekme içerikleri */}
@@ -311,15 +317,57 @@ function TabbedWorkspace({
 
               <Separator />
 
-              {/* Brief içerikleri */}
-              <BriefViewer
+              {/* Üret butonu — brief kayıpsa veya yeniden üretmek istiyorsa */}
+              <GenerateStream
                 projectId={project.id}
-                productIdea={project.product_idea}
-                researchBrief={project.research_brief}
-                interviewScript={project.interview_script}
+                onDone={() => {
+                  // Sayfa yenilenince DB'den güncel veri gelir
+                  window.location.reload()
+                }}
               />
+
+              {/* Brief içerikleri */}
+              {(project.research_brief ?? project.interview_script) && (
+                <>
+                  <Separator />
+                  <BriefViewer
+                    projectId={project.id}
+                    productIdea={project.product_idea}
+                    researchBrief={project.research_brief}
+                    interviewScript={project.interview_script}
+                  />
+                </>
+              )}
             </div>
           </ScrollArea>
+        )}
+        {activeTab === 'intake' && (
+          <div className="flex h-full min-h-0 flex-col">
+            {/* Başlık */}
+            <div className="flex shrink-0 items-center gap-2 border-b px-4 py-3">
+              <span className="bg-primary/10 text-primary flex size-7 items-center justify-center rounded-md">
+                <MessagesSquare className="size-4" />
+              </span>
+              <div className="flex flex-col">
+                <h2 className="text-sm font-semibold leading-tight">
+                  Intake Sohbeti Geçmişi
+                </h2>
+                <p className="text-muted-foreground text-xs leading-tight">
+                  Salt okunur — araştırma özetine esas olan konuşma
+                </p>
+              </div>
+            </div>
+            {/* IntakeChat disabled modda: input kapalı, geçmiş görünür */}
+            <div className="min-h-0 flex-1">
+              <IntakeChat
+                projectId={project.id}
+                disabled
+                onComplete={() => {
+                  // readonly modda tamamlanma eventi tetiklenmez
+                }}
+              />
+            </div>
+          </div>
         )}
       </div>
     </div>
