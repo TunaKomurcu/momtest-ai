@@ -12,7 +12,7 @@ MomTest AI is a Next.js 16 application with four distinct user-facing flows:
 PM Intake → Brief Generation → Participant Interview → Evidence Analysis
 ```
 
-Each flow maps to a dedicated API route. All persistent state lives in Supabase. The LLM provider is swappable via `openai.yaml`.
+Each flow maps to a dedicated API route. All persistent state lives in PostgreSQL via Drizzle ORM. The LLM provider is swappable via `openai.yaml`. There is no authentication — the dashboard is publicly accessible.
 
 ---
 
@@ -22,8 +22,9 @@ Each flow maps to a dedicated API route. All persistent state lives in Supabase.
 
 ```
 PM opens dashboard
-  → creates a new project (product_idea saved to DB)
-  → IntakeChat sends messages to POST /api/intake/[projectId]
+  → creates a new project via POST /api/projects (product_idea saved to DB)
+  → IntakeChat fetches history via GET /api/messages/[projectId]
+  → sends messages to POST /api/intake/[projectId]
   → API calls LLM with PM Intake system prompt
   → LLM asks up to 8 clarifying questions
   → When LLM produces <research_brief> tag → isComplete = true
@@ -35,8 +36,8 @@ PM opens dashboard
 
 ```
 PM clicks "Üret" in dashboard
-  → POST /api/generate/[projectId] — authenticated, streaming
-  → Server reads intake messages from messages table
+  → POST /api/generate/[projectId] — streaming
+  → Server reads intake messages from messages table via Drizzle
   → LLM call 1: produces FullResearchBrief (assumption map, evidence criteria)
     → SSE chunks: stage="research_brief"
     → parsed JSON saved to projects.research_brief
@@ -50,11 +51,12 @@ PM clicks "Üret" in dashboard
 ### Flow 3 — Participant Interview
 
 ```
-PM creates interview link in InterviewManager
-  → Supabase inserts interview row (status: pending)
+PM creates interview link via POST /api/interviews/[projectId]
+  → Drizzle inserts interview row (status: pending)
   → PM shares /interview/[id] with participant
 
 Participant opens link
+  → server page fetches interview status via Drizzle
   → name entry screen (ParticipantChat phase="name")
   → POST /api/interview/[interviewId] with message="Ready"
     → interview.status set to "ongoing"
@@ -72,8 +74,8 @@ Participant opens link
 
 ```
 PM clicks "Analiz Et" for a completed interview
-  → POST /api/analyze/[interviewId] — authenticated
-  → Server fetches full transcript (all messages with IDs)
+  → POST /api/analyze/[interviewId]
+  → Server fetches full transcript via Drizzle (all messages with IDs)
   → Transcript formatted: "[message_id] Role: content"
   → LLM classifies every participant signal:
       Strong (past behavior, workaround, spend)
@@ -92,32 +94,48 @@ PM clicks "Analiz Et" for a completed interview
 ## Data model
 
 ```
-profiles
-  └── projects (user_id → profiles.id)
-        ├── research_brief    JSONB  ← FullResearchBrief (assumption map, criteria)
-        ├── interview_script  JSONB  ← InterviewScript (goal, rules, questions)
-        └── interviews (project_id → projects.id)
-              ├── status           TEXT  (pending | ongoing | completed)
-              ├── signal_score     JSONB ← SignalScore (strong/medium/weak/negative arrays)
-              ├── evidence_report  TEXT  ← Markdown report
-              └── messages (interview_id → interviews.id)
-                    ├── sender  TEXT  (agent | participant)
-                    └── content TEXT
+projects
+  ├── research_brief    JSONB  ← FullResearchBrief (assumption map, criteria)
+  ├── interview_script  JSONB  ← InterviewScript (goal, rules, questions)
+  └── interviews (project_id → projects.id, CASCADE DELETE)
+        ├── status           TEXT  (pending | ongoing | completed)
+        ├── signal_score     JSONB ← SignalScore (strong/medium/weak/negative arrays)
+        ├── evidence_report  TEXT  ← Markdown report
+        └── messages (interview_id → interviews.id, CASCADE DELETE)
+              ├── sender  TEXT  (agent | participant)
+              └── content TEXT
 
 NOTE: intake messages are stored in messages with interview_id = project.id
       (project ID is reused as a virtual interview ID for the intake conversation)
 ```
 
-All tables use Row Level Security. A user can only access rows where `user_id = auth.uid()` (directly or through FK joins). The `/api/interview` route is public (no auth required) — participants do not need an account.
+Schema is defined in `lib/db/schema.ts` using Drizzle's `pgTable` builder and applied via `npx drizzle-kit push`. There are no RLS policies — all rows are accessible without authentication.
+
+---
+
+## API surface
+
+| Method | Route | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/projects` | — | List all projects |
+| POST | `/api/projects` | — | Create project |
+| DELETE | `/api/projects/[projectId]` | — | Delete project (cascade) |
+| GET | `/api/interviews/[projectId]` | — | List interviews for a project |
+| POST | `/api/interviews/[projectId]` | — | Create interview link |
+| GET | `/api/messages/[interviewId]` | — | Fetch message history |
+| POST | `/api/intake/[projectId]` | — | PM intake conversation turn |
+| POST | `/api/generate/[projectId]` | — | Stream research brief + script |
+| POST | `/api/interview/[interviewId]` | — | Participant interview turn (public) |
+| POST | `/api/analyze/[interviewId]` | — | Analyze completed interview |
 
 ---
 
 ## Component architecture
 
 ```
-app/dashboard/page.tsx          ← Server component: fetches projects + interviews
+app/dashboard/page.tsx          ← Server component: fetches projects + interviews via Drizzle
   DashboardWorkspace            ← Client root: manages project list state
-    ProjectSidebar              ← Project list, create dialog, delete confirm, logout
+    ProjectSidebar              ← Project list, create dialog, delete confirm
     ProjectWorkspace            ← Switches layout based on project status
       ├── 2-column (intake/brief_ready)
       │     ├── left: GenerateStream + BriefViewer + InterviewManager
@@ -127,6 +145,27 @@ app/dashboard/page.tsx          ← Server component: fetches projects + intervi
             ├── tab: Araştırma Dökümanları → GenerateStream + BriefViewer
             └── tab: Intake Geçmişi → IntakeChat (read-only)
 ```
+
+Client components communicate with the backend exclusively through the REST API endpoints above — no direct database access from the browser.
+
+---
+
+## Database layer
+
+All database access goes through the Drizzle client exported from `lib/db/index.ts`:
+
+```typescript
+import { db } from '@/lib/db/index'
+import { projects } from '@/lib/db/schema'
+import { eq } from 'drizzle-orm'
+
+const rows = await db
+  .select()
+  .from(projects)
+  .where(eq(projects.id, projectId))
+```
+
+JSONB columns (`research_brief`, `interview_script`, `signal_score`) are typed as `unknown` in TypeScript (Drizzle's `jsonb` inference). They are narrowed at the point of use with type guards before rendering.
 
 ---
 
@@ -145,9 +184,15 @@ new OpenAI({
 
 ---
 
-## Authentication & session management
+## Authentication
 
-Supabase Auth handles authentication. `lib/supabase/server.ts` manages cookie-based session persistence using `@supabase/ssr`. `proxy.ts` (Next.js 16 equivalent of `middleware.ts`) refreshes sessions on every request and redirects unauthenticated users away from protected routes.
+Authentication has been removed. There is no login page, no session management, and no ownership checks. `proxy.ts` is a passthrough middleware with an empty `matcher` — it does not protect any routes.
+
+To re-introduce auth, the recommended path is:
+1. Add a `user_id` column to the `projects` table
+2. Introduce a session mechanism (e.g. JWT cookie, NextAuth, or Supabase Auth)
+3. Filter queries by `user_id` in each route handler
+4. Restore route protection in `proxy.ts`
 
 ---
 
@@ -157,8 +202,8 @@ In-memory per-IP rate limiting is applied at the route handler level:
 
 | Route | Limit |
 |---|---|
-| `/api/interview` (public) | 10 req/min |
-| `/api/intake`, `/api/generate`, `/api/analyze` (authenticated) | 20 req/min |
+| `/api/interview` (public participant endpoint) | 10 req/min |
+| All other routes | 20 req/min |
 
 ---
 

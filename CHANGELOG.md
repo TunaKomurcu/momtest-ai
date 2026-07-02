@@ -9,6 +9,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.6.0] — 2026-07
+
+### Changed (Breaking)
+- **Supabase replaced with Drizzle ORM** — All database access now goes through Drizzle (`lib/db/index.ts`, `lib/db/schema.ts`). `@supabase/supabase-js` and `@supabase/ssr` packages are no longer used.
+- **Authentication removed** — There is no login, no session management, and no ownership checks. The dashboard is publicly accessible. `lib/supabase/client.ts` and `lib/supabase/server.ts` are now empty stubs.
+- **`user_id` column removed from `projects`** — The schema no longer associates projects with a user. All projects are visible to everyone.
+- **Database types rewritten** — `types/database.types.ts` now uses Drizzle `InferSelectModel` / `InferInsertModel` instead of the Supabase `Database` namespace. JSONB fields (`research_brief`, `interview_script`, `signal_score`) are typed as `unknown`.
+
+### Added
+- **`GET /api/projects`** — List all projects.
+- **`POST /api/projects`** — Create a project (replaces the inline Supabase insert in `NewProjectDialog`).
+- **`DELETE /api/projects/[projectId]`** — Delete a project (replaces the inline Supabase delete in `ProjectSidebar`).
+- **`GET /api/interviews/[projectId]`** — List interviews for a project (replaces the inline Supabase query in `InterviewManager`).
+- **`POST /api/interviews/[projectId]`** — Create an interview link (replaces the inline Supabase insert in `InterviewManager`).
+- **`GET /api/messages/[interviewId]`** — Fetch message history (replaces the inline Supabase query in `IntakeChat`).
+
+### Migrated
+- `app/api/analyze/[interviewId]/route.ts` — Drizzle queries, auth guard removed.
+- `app/dashboard/page.tsx` — Drizzle queries, auth redirect removed, `userEmail` prop removed.
+- `app/report/[interviewId]/page.tsx` — Drizzle queries, ownership check removed.
+- `app/interview/[id]/page.tsx` — Drizzle queries.
+- `components/dashboard/new-project-dialog.tsx` — `POST /api/projects` instead of inline Supabase insert.
+- `components/dashboard/intake-chat.tsx` — `GET /api/messages/[projectId]` instead of inline Supabase query.
+- `components/dashboard/interview-manager.tsx` — `/api/interviews/[projectId]` GET/POST and `/api/analyze/[interviewId]` instead of inline Supabase queries.
+- `components/dashboard/project-sidebar.tsx` — `DELETE /api/projects/[projectId]` instead of inline Supabase delete; auth footer and logout button removed.
+
+### Fixed
+- `proxy.ts` — Removed `@supabase/ssr` dependency and all session middleware logic; replaced with a passthrough (`NextResponse.next()`) with an empty matcher.
+- `components/dashboard/project-workspace.tsx` — `(project.research_brief ?? project.interview_script) &&` returned `unknown`, causing a `ReactNode` type error; fixed with `!!` cast.
+- `app/api/interview/[interviewId]/route.ts` — Truncated file (missing closing parentheses on `JSON.stringify` call and final `return` statement) repaired.
+
+---
+
 ## [0.5.0] — 2026-06-18
 
 ### Added

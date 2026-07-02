@@ -20,14 +20,13 @@ AI-powered customer discovery platform built on [Mom Test](http://momtestbook.co
 |---|---|---|
 | Framework | Next.js (App Router, Turbopack) | 16.2 |
 | Language | TypeScript | 5.9 |
-| Database & Auth | Supabase (PostgreSQL, RLS, Auth, SSR) | 2.x |
+| Database | PostgreSQL via Drizzle ORM | — |
 | LLM | OpenAI SDK — OpenAI-compatible (swappable via `openai.yaml`) | 4.x |
 | Streaming | Server-Sent Events via native `ReadableStream` | — |
 | Styling | Tailwind CSS v4, `tw-animate-css` | 4.x |
 | UI Components | Base UI (headless), `class-variance-authority`, `lucide-react` | 1.6 |
 | Notifications | Sonner toast | 2.x |
 | Config parsing | `js-yaml` | 5.x |
-| Testing | Vitest + `@vitest/coverage-v8` + MSW | 3.x |
 | Runtime | Node.js | 20+ |
 
 ---
@@ -37,22 +36,27 @@ AI-powered customer discovery platform built on [Mom Test](http://momtestbook.co
 ```
 app/
   api/
-    intake/[projectId]/       POST  — PM intake conversation
-    generate/[projectId]/     POST  — streaming research brief + interview script
-    interview/[interviewId]/  POST  — public participant interview (no auth)
-    analyze/[interviewId]/    POST  — evidence analysis and report generation
+    intake/[projectId]/       POST   — PM intake conversation
+    generate/[projectId]/     POST   — streaming research brief + interview script
+    interview/[interviewId]/  POST   — public participant interview (no auth)
+    analyze/[interviewId]/    POST   — evidence analysis and report generation
+    projects/                 GET    — list all projects
+                              POST   — create project
+    projects/[projectId]/     DELETE — delete project and cascade
+    interviews/[projectId]/   GET    — list interviews for a project
+                              POST   — create interview link
+    messages/[interviewId]/   GET    — fetch message history
   auth/
-    login/                    Login + sign-up page
-    callback/                 Supabase OAuth / email confirmation handler
-  dashboard/                  Protected PM workspace
+    login/                    Redirects to /dashboard (auth removed)
+    callback/                 Redirects to /dashboard (auth removed)
+  dashboard/                  PM workspace (public, no login required)
   interview/[id]/             Public participant chat page
   report/[interviewId]/       Evidence report viewer
 
 components/
-  auth/                       LoginForm (login + signup tabs, email verification)
   dashboard/
     dashboard-workspace       Root client layout with sidebar + workspace
-    project-sidebar           Project list, create, delete, logout
+    project-sidebar           Project list, create dialog, delete confirm
     project-workspace         Tabbed workspace (Interviews / Briefs / Intake History)
     brief-viewer              Research brief + interview script viewer with JSON download
     intake-chat               PM intake chat (read-only in history mode)
@@ -62,9 +66,9 @@ components/
   ui/                         Base UI + shadcn component library
 
 lib/
-  supabase/
-    client.ts                 Browser Supabase client
-    server.ts                 Server-side Supabase client (cookies)
+  db/
+    index.ts                  Drizzle client (node-postgres pool)
+    schema.ts                 Table definitions (projects, interviews, messages)
   api-helpers/
     intake.ts                 extractResearchBrief, checkIntakeCompletion
     interview.ts              isClosingMessage, serializeInterviewScript, shouldCloseInterview
@@ -74,20 +78,8 @@ lib/
   project-status.ts           deriveProjectStatus state machine
 
 types/
-  database.types.ts           Supabase table types (Row / Insert / Update)
+  database.types.ts           Drizzle InferSelectModel / InferInsertModel types
   index.ts                    Application-level types (API shapes, LLM mappings)
-
-supabase/
-  schema.sql                  Full PostgreSQL schema (tables, RLS, indexes, triggers)
-
-tests/
-  unit/                       Pure helper unit tests (project-status, api-helpers)
-  integration/                API helper + MSW HTTP mock tests
-  mom-test/                   Domain tests — Mom Test methodology rules
-    intake-flow               PM intake agent behavior
-    question-quality          Interview question anti-pattern detection
-    evidence-classifier       Signal classification (personas: Maya, Deniz, Arda)
-    report-format             Evidence report structure and forbidden phrases
 
 mom-test-customer-discovery/
   agents/openai.yaml          LLM provider config (model, base_url, temperature)
@@ -107,13 +99,25 @@ cd momtest-ai
 npm install
 ```
 
-### 2. Set up Supabase
+### 2. Start PostgreSQL
 
-1. Create a project at [supabase.com](https://supabase.com)
-2. Run `supabase/schema.sql` in the **SQL Editor** (Dashboard → SQL Editor → paste → Run)
-3. Enable email confirmations: Authentication → Email Templates → confirm the default template is active
+A `docker-compose.yml` is included for local development:
 
-### 3. Configure environment variables
+```bash
+docker compose up -d
+```
+
+Or point `DATABASE_URL` to any existing PostgreSQL instance.
+
+### 3. Run migrations
+
+```bash
+npx drizzle-kit push
+```
+
+This applies the schema from `lib/db/schema.ts` to your database.
+
+### 4. Configure environment variables
 
 ```bash
 cp .env.example .env.local
@@ -122,78 +126,62 @@ cp .env.example .env.local
 Fill in `.env.local`:
 
 ```bash
-NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
-SUPABASE_SERVICE_ROLE_KEY=sb_secret_...
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/momtest
 OPENAI_API_KEY=sk-proj-...
+MAKE_WEBHOOK_INTERVIEW_URL=   # optional
+MAKE_WEBHOOK_ANALYSIS_URL=    # optional
 ```
 
-### 4. Configure the LLM provider (optional)
+### 5. Configure the LLM provider (optional)
 
 Edit `mom-test-customer-discovery/agents/openai.yaml` to change the model or provider:
 
 ```yaml
 model:
-  provider: "openai"          # openai | google | groq | any OpenAI-compatible
-  name: "gpt-4o-mini"
-  base_url: "https://api.openai.com/v1"
+  provider: "groq"
+  name: "llama-3.3-70b-versatile"
+  base_url: "https://api.groq.com/openai/v1"
   temperature: 0.7
   max_tokens: 1024
 ```
 
-### 5. Run the development server
+### 6. Run the development server
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000) — you land directly on the dashboard, no login required.
 
 ---
 
 ## Database schema
 
-Four tables with RLS enabled:
+Three tables managed by Drizzle ORM:
 
 | Table | Purpose |
 |---|---|
-| `profiles` | Synced with `auth.users` via trigger |
 | `projects` | One per product idea — stores `research_brief` and `interview_script` as JSONB |
-| `interviews` | One per participant — stores `transcript`, `signal_score`, `evidence_report` |
+| `interviews` | One per participant — stores `signal_score` and `evidence_report` |
 | `messages` | Individual chat messages for both intake and participant interviews |
 
 All cascade deletes: removing a project removes all its interviews and messages.
 
----
-
-## Running tests
-
-```bash
-npm test               # run all tests once
-npm run test:watch     # watch mode
-npm run test:coverage  # coverage report
-```
-
-**389 tests** across three layers:
-
-- `tests/unit/` — pure TypeScript logic, no dependencies
-- `tests/integration/` — API helpers + MSW HTTP mocks
-- `tests/mom-test/` — Mom Test domain rules (evidence rubric, question patterns, report format)
+> **Note:** There is no `user_id` column or Row Level Security. All data is accessible without authentication. Auth can be re-added later by introducing a `user_id` column and RLS policies.
 
 ---
 
 ## Key conventions
 
 - All API routes live under `app/api/` and follow `{ data: T, error: null }` / `{ data: null, error: string }` response shape.
-- Public routes (e.g. `/api/interview`) apply a 10 req/min rate limit per IP. Authenticated routes apply 20 req/min.
-- Supabase clients are never instantiated inline — always use `lib/supabase/client.ts` (browser) or `lib/supabase/server.ts` (server).
-- `any` type is forbidden — all Supabase query results are typed via `types/database.types.ts`.
-- The `proxy.ts` file (Next.js 16 replacement for `middleware.ts`) handles session refresh and route protection.
+- Public routes (e.g. `/api/interview`) apply a 10 req/min rate limit per IP. Other routes apply 20 req/min.
+- Database access uses Drizzle ORM exclusively — never raw SQL strings or inline client instantiation.
+- `any` type is forbidden — all query results are typed via `types/database.types.ts` (Drizzle `InferSelectModel`).
+- JSONB fields (`research_brief`, `interview_script`, `signal_score`) are typed as `unknown` on the TypeScript side and narrowed at the point of use.
+- `proxy.ts` (Next.js 16 replacement for `middleware.ts`) is a passthrough — no session logic.
 
 ---
 
 ## Deployment
 
-The project is designed for [Vercel](https://vercel.com). Set the same environment variables in the Vercel project settings and deploy from the main branch.
-
-Make sure `SUPABASE_SERVICE_ROLE_KEY` is marked as a **secret** (not exposed to browser) in your deployment environment.
+The project is designed for [Vercel](https://vercel.com). Set the environment variables in the Vercel project settings and deploy from the main branch. You will need a hosted PostgreSQL database (Neon, Supabase DB-only, Railway, etc.) — set `DATABASE_URL` accordingly.

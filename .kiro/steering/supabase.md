@@ -3,57 +3,55 @@ inclusion: fileMatch
 fileMatchPattern: ['**/*.ts', '**/*.tsx']
 ---
 
-# Supabase Usage Standards
+# Database Usage Standards
 
 ## Client Instantiation
 
-Always use the factory functions from `lib/supabase/`. Never instantiate clients inline.
-
-| Context | Import path | Notes |
-|---|---|---|
-| Client Components | `@/lib/supabase/client` | Synchronous |
-| Server Components, Route Handlers, Server Actions | `@/lib/supabase/server` | `async` — must be awaited |
+Always use the Drizzle client exported from `lib/db/index.ts`. Never instantiate a database connection inline.
 
 ```typescript
-// Client Component
-import { createClient } from '@/lib/supabase/client'
-const supabase = createClient()
-
-// Server Component / Route Handler / Server Action
-import { createClient } from '@/lib/supabase/server'
-const supabase = await createClient()
+import { db } from '@/lib/db/index'
+import { projects } from '@/lib/db/schema'
+import { eq } from 'drizzle-orm'
 ```
 
-Never call `new SupabaseClient(...)` or `createClient(url, key)` directly anywhere in the app.
+Never call `new Pool(...)` or `drizzle(...)` directly in route handlers or components.
 
-## Error Handling
+## Querying
 
-Every Supabase query must check the returned `error` object before using `data`. Wrap in `try/catch` at the call site.
+Use Drizzle's query builder for all database access. Wrap every query in `try/catch`.
 
 ```typescript
 try {
-  const { data, error } = await supabase.from('projects').select('*')
-  if (error) {
-    console.error(`[Supabase Error] Fetching projects failed: ${error.message} (${error.code})`)
-    throw new Error(error.message)
+  const rows = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1)
+
+  const project = rows[0]
+  if (!project) {
+    return NextResponse.json({ data: null, error: 'Proje bulunamadı.' }, { status: 404 })
   }
-  return data
+  return project
 } catch (err) {
+  console.error('[Route] DB query failed:', err)
   throw err
 }
 ```
 
 Rules:
-- Log format: `[Supabase Error] <context>: ${error.message} (${error.code})`
-- Never use `data` when `error` is non-null
+- Log format: `[Route] <context> failed: ${err}`
+- Never use a result before checking that the array is non-empty
 - Never silently swallow errors — always log before re-throwing
 
-## Session & Auth
+## Authentication
 
-The server client in `lib/supabase/server.ts` manages session persistence via `getAll`/`setAll` on the Next.js `cookies()` store. Do not bypass, re-wrap, or reimplement this cookie handling.
+Authentication has been removed. There are no session checks, no `auth.getUser()` calls, and no ownership filters in queries. Do not add auth guards to route handlers without a corresponding schema change (`user_id` column + RLS or equivalent).
 
 ## Type Safety
 
-- Database types are auto-generated and live in `types/database.types.ts` — use them to type all query results
+- Database row types are derived via Drizzle `InferSelectModel` and live in `types/database.types.ts`
+- JSONB columns (`research_brief`, `interview_script`, `signal_score`) are typed as `unknown` — narrow them with type guards before use
 - Application-level types (API responses, AI prompt mappings) go in `types/index.ts` or a co-located `types.ts`
-- `any` is forbidden — prefer explicit return types on all functions that call Supabase
+- `any` is forbidden — all query results must be explicitly typed

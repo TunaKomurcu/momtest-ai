@@ -1,7 +1,7 @@
 /**
  * Uygulama katmanı tip tanımlamaları.
  * API response yapıları, AI prompt mapping yapıları ve ara katman tipleri burada tanımlanır.
- * Supabase DB tipleri için: types/database.types.ts
+ * Drizzle ORM ile türetilen DB tipleri için: types/database.types.ts
  */
 
 // ---------------------------------------------------------------------------
