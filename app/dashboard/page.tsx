@@ -1,58 +1,51 @@
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/index'
+import { projects, interviews } from '@/lib/db/schema'
+import { desc, inArray } from 'drizzle-orm'
 import { deriveProjectStatus } from '@/lib/project-status'
 import type { Project, Interview } from '@/types/database.types'
 import type { DashboardProject } from '@/components/dashboard/types'
 import { DashboardWorkspace } from '@/components/dashboard/dashboard-workspace'
 
 export default async function DashboardPage() {
-  const supabase = await createClient()
+  // Tüm projeleri çek
+  const projectRows = await db
+    .select()
+    .from(projects)
+    .orderBy(desc(projects.created_at))
+    .catch((err) => {
+      console.error('[Dashboard] Proje listesi alınamadı:', err)
+      return [] as Project[]
+    })
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Durum türetmek için ilgili mülakatları çek
+  let interviewRows: Pick<Interview, 'project_id' | 'evidence_report' | 'signal_score'>[] = []
 
-  if (!user) {
-    redirect('/auth/login')
+  if (projectRows.length > 0) {
+    interviewRows = await db
+      .select({
+        project_id: interviews.project_id,
+        evidence_report: interviews.evidence_report,
+        signal_score: interviews.signal_score,
+      })
+      .from(interviews)
+      .where(inArray(interviews.project_id, projectRows.map((p) => p.id)))
+      .catch((err) => {
+        console.error('[Dashboard] Mülakat listesi alınamadı:', err)
+        return []
+      })
   }
 
-  // Kullanıcının projeleri (RLS zaten user_id ile sınırlar).
-  const { data: projectsData } = await supabase
-    .from('projects')
-    .select('*')
-    .order('created_at', { ascending: false })
-
-  const projects = (projectsData ?? []) as Project[]
-
-  // Durum türetmek için ilgili mülakatları çek.
-  let interviews: Pick<
-    Interview,
-    'project_id' | 'evidence_report' | 'signal_score'
-  >[] = []
-
-  if (projects.length > 0) {
-    const { data: interviewsData } = await supabase
-      .from('interviews')
-      .select('project_id, evidence_report, signal_score')
-      .in(
-        'project_id',
-        projects.map((p) => p.id)
-      )
-    interviews = interviewsData ?? []
-  }
-
-  const dashboardProjects: DashboardProject[] = projects.map((project) => ({
+  const dashboardProjects: DashboardProject[] = projectRows.map((project) => ({
     ...project,
     status: deriveProjectStatus(
       project,
-      interviews.filter((i) => i.project_id === project.id)
+      interviewRows.filter((i) => i.project_id === project.id)
     ),
   }))
 
   return (
     <DashboardWorkspace
       initialProjects={dashboardProjects}
-      userEmail={user.email ?? ''}
     />
   )
 }

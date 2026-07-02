@@ -3,8 +3,6 @@
 import { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { ChevronDown, ChevronUp, TriangleAlert } from 'lucide-react'
-import type { Json } from '@/types/database.types'
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface InterviewForSummary {
@@ -12,7 +10,7 @@ interface InterviewForSummary {
   participant_name: string
   status: string
   evidence_report: string | null
-  signal_score: Json | null
+  signal_score: unknown
 }
 
 interface SignalTotals {
@@ -44,7 +42,7 @@ function parseDecision(report: string | null): string {
   return match?.[1]?.trim().toLowerCase() ?? ''
 }
 
-function parseSignalTotals(score: Json | null): SignalTotals {
+function parseSignalTotals(score: unknown): SignalTotals {
   if (!score || typeof score !== 'object' || Array.isArray(score)) {
     return { strong: 0, medium: 0, weak: 0, negative: 0 }
   }

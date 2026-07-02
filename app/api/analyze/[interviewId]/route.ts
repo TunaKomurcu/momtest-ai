@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/index'
+import { interviews, projects, messages } from '@/lib/db/schema'
+import { eq, asc } from 'drizzle-orm'
 import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
-import type { Database } from '@/types/database.types'
 import type {
   ApiResponse,
   OpenAIAgentConfig,
@@ -147,10 +148,6 @@ function loadAgentConfig(): Partial<OpenAIAgentConfig> {
   }
 }
 
-/**
- * LLM çıktısını JSON'a parse eder.
- * Model bazen ```json ... ``` fence ekleyebilir — temizlenir.
- */
 function parseJsonOutput<T>(raw: string): T | null {
   const cleaned = raw
     .replace(/^```(?:json)?\s*/i, '')
@@ -165,9 +162,6 @@ function parseJsonOutput<T>(raw: string): T | null {
   }
 }
 
-/**
- * StructuredAnalysis çıktısından SignalScore JSONB yapısını türetir.
- */
 function buildSignalScore(analysis: StructuredAnalysis): SignalScore {
   return {
     strong: analysis.strongEvidence.map((e) => ({
@@ -189,9 +183,6 @@ function buildSignalScore(analysis: StructuredAnalysis): SignalScore {
   }
 }
 
-/**
- * StructuredAnalysis çıktısından SignalSummary sayım bilgisini türetir.
- */
 function buildSignalSummary(analysis: StructuredAnalysis): SignalSummary {
   return {
     strong_count: analysis.strongEvidence.length,
@@ -201,9 +192,6 @@ function buildSignalSummary(analysis: StructuredAnalysis): SignalSummary {
   }
 }
 
-/**
- * SKILL.md Skill 6 Evidence Report şablonuna göre Markdown rapor üretir.
- */
 function buildMarkdownReport(
   analysis: StructuredAnalysis,
   participantName: string
@@ -300,80 +288,58 @@ export async function POST(
     )
   }
 
-  // --- Supabase auth ---
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    return NextResponse.json(
-      { data: null, error: 'Kimlik doğrulaması gereklidir.' },
-      { status: 401 }
-    )
-  }
-
   // --- Interview kaydını çek ---
-  type InterviewRow = Pick<
-    Database['public']['Tables']['interviews']['Row'],
-    'id' | 'project_id' | 'participant_name' | 'status'
-  >
+  let interview: {
+    id: string
+    project_id: string
+    participant_name: string
+    status: string
+  } | undefined
 
-  let interview: InterviewRow
   try {
-    const { data: interviewData, error: interviewError } = await supabase
-      .from('interviews')
-      .select('id, project_id, participant_name, status')
-      .eq('id', interviewId)
-      .single()
+    const rows = await db
+      .select({
+        id: interviews.id,
+        project_id: interviews.project_id,
+        participant_name: interviews.participant_name,
+        status: interviews.status,
+      })
+      .from(interviews)
+      .where(eq(interviews.id, interviewId))
+      .limit(1)
 
-    if (interviewError) {
-      console.error(
-        `[Supabase Error] Interview sorgusu başarısız: ${interviewError.message} (${interviewError.code})`
-      )
-      return NextResponse.json(
-        { data: null, error: 'Mülakat bulunamadı.' },
-        { status: 404 }
-      )
-    }
-
-    interview = interviewData as InterviewRow
+    interview = rows[0]
   } catch (err) {
-    console.error('[Analyze] Beklenmeyen hata (interview sorgusu):', err)
+    console.error('[Analyze] Interview sorgusu başarısız:', err)
     return NextResponse.json(
       { data: null, error: 'Sunucu hatası.' },
       { status: 500 }
     )
   }
 
-  // --- Sahiplik doğrulama — projenin bu kullanıcıya ait olduğunu kontrol et ---
-  try {
-    const { data: projectData, error: projectError } = await supabase
-      .from('projects')
-      .select('id, user_id')
-      .eq('id', interview.project_id)
-      .single()
+  if (!interview) {
+    return NextResponse.json(
+      { data: null, error: 'Mülakat bulunamadı.' },
+      { status: 404 }
+    )
+  }
 
-    if (projectError) {
-      console.error(
-        `[Supabase Error] Proje sorgusu başarısız: ${projectError.message} (${projectError.code})`
-      )
+  // --- Proje varlığını doğrula ---
+  try {
+    const rows = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.id, interview.project_id))
+      .limit(1)
+
+    if (!rows[0]) {
       return NextResponse.json(
         { data: null, error: 'Proje bulunamadı.' },
         { status: 404 }
       )
     }
-
-    if (projectData.user_id !== user.id) {
-      return NextResponse.json(
-        { data: null, error: 'Bu mülakata erişim yetkiniz yok.' },
-        { status: 403 }
-      )
-    }
   } catch (err) {
-    console.error('[Analyze] Beklenmeyen hata (proje sahiplik sorgusu):', err)
+    console.error('[Analyze] Proje sorgusu başarısız:', err)
     return NextResponse.json(
       { data: null, error: 'Sunucu hatası.' },
       { status: 500 }
@@ -392,39 +358,28 @@ export async function POST(
   }
 
   // --- Tüm mesajları çek (ID dahil) ---
-  type MessageRow = Pick<
-    Database['public']['Tables']['messages']['Row'],
-    'id' | 'sender' | 'content' | 'created_at'
-  >
+  let messageRows: { id: string; sender: string; content: string; created_at: Date }[] = []
 
-  let messages: MessageRow[] = []
   try {
-    const { data: messageRows, error: messagesError } = await supabase
-      .from('messages')
-      .select('id, sender, content, created_at')
-      .eq('interview_id', interviewId)
-      .order('created_at', { ascending: true })
-
-    if (messagesError) {
-      console.error(
-        `[Supabase Error] Mesaj geçmişi sorgusu başarısız: ${messagesError.message} (${messagesError.code})`
-      )
-      return NextResponse.json(
-        { data: null, error: 'Mesajlar alınamadı.' },
-        { status: 500 }
-      )
-    }
-
-    messages = (messageRows ?? []) as MessageRow[]
+    messageRows = await db
+      .select({
+        id: messages.id,
+        sender: messages.sender,
+        content: messages.content,
+        created_at: messages.created_at,
+      })
+      .from(messages)
+      .where(eq(messages.interview_id, interviewId))
+      .orderBy(asc(messages.created_at))
   } catch (err) {
-    console.error('[Analyze] Beklenmeyen hata (mesaj sorgusu):', err)
+    console.error('[Analyze] Mesaj sorgusu başarısız:', err)
     return NextResponse.json(
-      { data: null, error: 'Sunucu hatası.' },
+      { data: null, error: 'Mesajlar alınamadı.' },
       { status: 500 }
     )
   }
 
-  if (messages.length === 0) {
+  if (messageRows.length === 0) {
     return NextResponse.json(
       { data: null, error: 'Bu mülakata ait mesaj bulunamadı.' },
       { status: 400 }
@@ -432,28 +387,25 @@ export async function POST(
   }
 
   // --- Transcript oluştur — her satıra message_id eklenir (LLM referans için) ---
-  const transcript = messages
+  const transcript = messageRows
     .map((m) => {
       const role = m.sender === 'agent' ? 'Interviewer' : 'Participant'
       return `[${m.id}] ${role}: ${m.content}`
     })
     .join('\n')
 
-  // --- Gemini config ---
+  // --- Agent config ---
   const agentConfig = loadAgentConfig()
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL:
-      agentConfig.model?.base_url ??
-      'https://api.groq.com/openai/v1',
+    baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
   })
 
-  // --- Gemini çağrısı ---
+  // --- LLM çağrısı ---
   let rawAnalysis: string
   try {
     const completion = await openai.chat.completions.create({
       model: agentConfig.model?.name ?? 'gemini-flash-latest',
-      // Analiz için daha düşük temperature: deterministik sınıflandırma
       temperature: 0.2,
       max_tokens: agentConfig.model?.max_tokens ?? 2048,
       messages: [
@@ -468,10 +420,10 @@ export async function POST(
     rawAnalysis = completion.choices[0]?.message?.content?.trim() ?? ''
 
     if (!rawAnalysis) {
-      throw new Error('Gemini boş yanıt döndürdü.')
+      throw new Error('LLM boş yanıt döndürdü.')
     }
   } catch (err) {
-    console.error('[Analyze] Gemini çağrısı başarısız:', err)
+    console.error('[Analyze] LLM çağrısı başarısız:', err)
     return NextResponse.json(
       { data: null, error: 'Yapay zeka analizi başarısız oldu. Lütfen tekrar deneyin.' },
       { status: 500 }
@@ -498,30 +450,25 @@ export async function POST(
   let evidenceReportSaved = false
 
   try {
-    const { error: interviewUpdateError } = await supabase
-      .from('interviews')
-      .update({
+    await db
+      .update(interviews)
+      .set({
         signal_score: signalScore,
         evidence_report: markdownReport,
+        updated_at: new Date(),
       })
-      .eq('id', interviewId)
+      .where(eq(interviews.id, interviewId))
 
-    if (interviewUpdateError) {
-      console.error(
-        `[Supabase Error] Interview güncelleme başarısız: ${interviewUpdateError.message} (${interviewUpdateError.code})`
-      )
-    } else {
-      signalScoreSaved = true
-      evidenceReportSaved = true
-    }
+    signalScoreSaved = true
+    evidenceReportSaved = true
   } catch (err) {
-    console.error('[Analyze] Beklenmeyen hata (interview güncelleme):', err)
+    console.error('[Analyze] Interview güncelleme başarısız:', err)
   }
 
   // --- Make.com webhook — fire-and-forget ---
   const webhookUrl = process.env.MAKE_WEBHOOK_ANALYSIS_URL
   if (webhookUrl) {
-    const payload: AnalysisCompletedWebhookPayload = {
+    const webhookPayload: AnalysisCompletedWebhookPayload = {
       event: 'analysis_completed',
       interview_id: interviewId,
       project_id: interview.project_id,
@@ -536,7 +483,7 @@ export async function POST(
         await fetch(webhookUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(webhookPayload),
         })
       } catch (err) {
         console.error('[Analyze] Make.com webhook gönderilemedi:', err)

@@ -6,9 +6,8 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, Bot, User } from 'lucide-react'
-import type { Json } from '@/types/database.types'
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface SignalEntry {
   quote: string
@@ -24,7 +23,7 @@ interface SignalScore {
 
 interface InterviewData {
   participant_name: string
-  signal_score: Json | null
+  signal_score: unknown
   evidence_report: string
 }
 
@@ -54,7 +53,7 @@ function parseNextStep(report: string): string {
   return match?.[1]?.trim() ?? ''
 }
 
-function parseSignalScore(raw: Json | null): SignalScore {
+function parseSignalScore(raw: unknown): SignalScore {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { strong: [], medium: [], weak: [], negative: [] }
   }

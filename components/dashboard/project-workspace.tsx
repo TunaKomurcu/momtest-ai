@@ -327,7 +327,7 @@ function TabbedWorkspace({
               />
 
               {/* Brief içerikleri */}
-              {(project.research_brief ?? project.interview_script) && (
+              {!!(project.research_brief ?? project.interview_script) && (
                 <>
                   <Separator />
                   <BriefViewer

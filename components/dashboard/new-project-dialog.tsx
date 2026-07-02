@@ -1,11 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { createClient } from '@/lib/supabase/client'
 import { deriveProjectStatus } from '@/lib/project-status'
 import type { Project } from '@/types/database.types'
+import type { ApiResponse } from '@/types/index'
 import type { DashboardProject } from '@/components/dashboard/types'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -27,7 +26,6 @@ export function NewProjectDialog({
 }: {
   onProjectCreated: (project: DashboardProject) => void
 }) {
-  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [productIdea, setProductIdea] = useState('')
   const [loading, setLoading] = useState(false)
@@ -38,41 +36,36 @@ export function NewProjectDialog({
     if (!idea) return
 
     setLoading(true)
-    const supabase = createClient()
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_idea: idea }),
+      })
 
-    if (!user) {
-      toast.error('Oturum bulunamadı. Lütfen tekrar giriş yapın.')
+      const payload = (await res.json()) as ApiResponse<Project>
+
+      if (!res.ok || payload.error || !payload.data) {
+        toast.error('Proje oluşturulamadı: ' + (payload.error ?? 'bilinmeyen hata'))
+        return
+      }
+
+      const project = payload.data
+      onProjectCreated({
+        ...project,
+        status: deriveProjectStatus(project, []),
+      })
+
+      toast.success('Yeni proje oluşturuldu.')
+      setProductIdea('')
+      setOpen(false)
+    } catch (err) {
+      console.error('[NewProjectDialog] Hata:', err)
+      toast.error('Proje oluşturulamadı. Lütfen tekrar deneyin.')
+    } finally {
       setLoading(false)
-      router.replace('/auth/login')
-      return
     }
-
-    const { data, error } = await supabase
-      .from('projects')
-      .insert({ user_id: user.id, product_idea: idea })
-      .select('*')
-      .single()
-
-    if (error || !data) {
-      toast.error('Proje oluşturulamadı: ' + (error?.message ?? 'bilinmeyen hata'))
-      setLoading(false)
-      return
-    }
-
-    const project = data as Project
-    onProjectCreated({
-      ...project,
-      status: deriveProjectStatus(project, []),
-    })
-
-    toast.success('Yeni proje oluşturuldu.')
-    setProductIdea('')
-    setLoading(false)
-    setOpen(false)
   }
 
   return (

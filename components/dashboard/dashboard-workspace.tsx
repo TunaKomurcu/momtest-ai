@@ -10,10 +10,8 @@ import type { ProjectStatus } from '@/lib/project-status'
 
 export function DashboardWorkspace({
   initialProjects,
-  userEmail,
 }: {
   initialProjects: DashboardProject[]
-  userEmail: string
 }) {
   const [projects, setProjects] = useState<DashboardProject[]>(initialProjects)
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -57,7 +55,6 @@ export function DashboardWorkspace({
       <ProjectSidebar
         projects={projects}
         selectedId={selectedId}
-        userEmail={userEmail}
         onSelect={setSelectedId}
         onProjectCreated={handleProjectCreated}
         onProjectDeleted={handleProjectDeleted}

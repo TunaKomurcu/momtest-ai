@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/index'
+import { projects, interviews, messages } from '@/lib/db/schema'
+import { eq, asc } from 'drizzle-orm'
 import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
-import type { Database } from '@/types/database.types'
 import type {
   InterviewRequestBody,
   InterviewResponseData,
@@ -12,6 +13,7 @@ import type {
   OpenAIAgentConfig,
   ConversationMessage,
   InterviewCompletedWebhookPayload,
+  InterviewScript,
 } from '@/types/index'
 
 // ---------------------------------------------------------------------------
@@ -25,27 +27,19 @@ const RATE_LIMIT_WINDOW_MS = 60_000
 function checkRateLimit(ip: string): boolean {
   const now = Date.now()
   const entry = rateLimitMap.get(ip)
-
   if (!entry || now > entry.resetAt) {
     rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
     return true
   }
-
   if (entry.count >= RATE_LIMIT_MAX) return false
-
   entry.count++
   return true
 }
 
 // ---------------------------------------------------------------------------
-// Participant Interviewer system prompt — SKILL.md Skill 5 +
-// mom-test-agent-prompts.md participant interviewer agent
+// Participant Interviewer system prompt
 // ---------------------------------------------------------------------------
 
-/**
- * Statik sistem promptu.
- * Dinamik bölümler (interview_script, participant_name) çalışma zamanında eklenir.
- */
 const BASE_INTERVIEWER_SYSTEM_PROMPT = `You are a customer discovery interviewer trained in Mom Test principles.
 
 ## Core behavior
@@ -120,12 +114,7 @@ After the closing message, do NOT ask any more questions.`
 
 function loadAgentConfig(): Partial<OpenAIAgentConfig> {
   try {
-    const yamlPath = path.join(
-      process.cwd(),
-      'mom-test-customer-discovery',
-      'agents',
-      'openai.yaml'
-    )
+    const yamlPath = path.join(process.cwd(), 'mom-test-customer-discovery', 'agents', 'openai.yaml')
     const raw = fs.readFileSync(yamlPath, 'utf-8')
     return yamlLoad(raw) as Partial<OpenAIAgentConfig>
   } catch {
@@ -134,29 +123,16 @@ function loadAgentConfig(): Partial<OpenAIAgentConfig> {
   }
 }
 
-/**
- * interview_script JSONB verisini okunabilir metin bloğuna çevirir.
- * LLM'e bağlam olarak verilir; katılımcıya asla gösterilmez.
- */
-function serializeInterviewScript(script: Database['public']['Tables']['projects']['Row']['interview_script']): string {
+function serializeInterviewScript(script: unknown): string {
   if (!script) return 'No interview script available. Use general Mom Test question patterns.'
-
   try {
-    const s = script as {
-      goal?: string
-      rulesForInterviewer?: string[]
-      questions?: Array<{ order?: number; question: string; signalSought?: string }>
-    }
-
+    const s = script as Partial<InterviewScript>
     const lines: string[] = []
-
     if (s.goal) lines.push(`Interview goal: ${s.goal}`)
-
     if (s.rulesForInterviewer?.length) {
       lines.push('\nRules for this interview:')
       s.rulesForInterviewer.forEach((r) => lines.push(`- ${r}`))
     }
-
     if (s.questions?.length) {
       lines.push('\nGuided question sequence (follow this order, adapt naturally):')
       s.questions.forEach((q) => {
@@ -165,26 +141,18 @@ function serializeInterviewScript(script: Database['public']['Tables']['projects
         lines.push(`${prefix}${q.question}${signal}`)
       })
     }
-
     return lines.join('\n')
   } catch {
     return 'Interview script available but could not be parsed. Use general Mom Test question patterns.'
   }
 }
 
-/**
- * Anlamlı katılımcı yanıtı sayısını hesaplar.
- * Kısa/tek kelimelik yanıtlar sayılmaz.
- */
-function countMeaningfulParticipantReplies(messages: ConversationMessage[]): number {
-  return messages.filter(
+function countMeaningfulParticipantReplies(msgs: ConversationMessage[]): number {
+  return msgs.filter(
     (m) => m.sender === 'participant' && m.content.trim().split(/\s+/).length >= 5
   ).length
 }
 
-/**
- * Ajanın kapanış mesajı gönderip göndermediğini tespit eder.
- */
 function isClosingMessage(text: string): boolean {
   return (
     /thank you for your time/i.test(text) ||
@@ -202,7 +170,6 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ interviewId: string }> }
 ): Promise<NextResponse<ApiResponse<InterviewResponseData>>> {
-  // --- Rate limiting ---
   const ip =
     request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
     request.headers.get('x-real-ip') ??
@@ -215,32 +182,21 @@ export async function POST(
     )
   }
 
-  // --- interviewId ---
   const { interviewId } = await params
 
   if (!interviewId) {
-    return NextResponse.json(
-      { data: null, error: 'interviewId gereklidir.' },
-      { status: 400 }
-    )
+    return NextResponse.json({ data: null, error: 'interviewId gereklidir.' }, { status: 400 })
   }
 
-  // --- Body doğrulama ---
   let body: InterviewRequestBody
   try {
     body = (await request.json()) as InterviewRequestBody
   } catch {
-    return NextResponse.json(
-      { data: null, error: 'Geçersiz JSON gövdesi.' },
-      { status: 400 }
-    )
+    return NextResponse.json({ data: null, error: 'Geçersiz JSON gövdesi.' }, { status: 400 })
   }
 
   if (!body.message || body.message.trim().length === 0) {
-    return NextResponse.json(
-      { data: null, error: 'message alanı boş olamaz.' },
-      { status: 400 }
-    )
+    return NextResponse.json({ data: null, error: 'message alanı boş olamaz.' }, { status: 400 })
   }
 
   if (!body.participant_name || body.participant_name.trim().length < 2) {
@@ -253,45 +209,29 @@ export async function POST(
   const userMessage = body.message.trim()
   const participantName = body.participant_name.trim()
 
-  // --- Supabase (service role — public route, auth yok) ---
-  // Interview route herkese açık; kimlik doğrulama gerekmez.
-  // Supabase server client oturum olmadan da service-role ile çalışabilir.
-  const supabase = await createClient()
-
-  // --- Interview kaydını çek + doğrula ---
-  type InterviewRow = Pick<
-    Database['public']['Tables']['interviews']['Row'],
-    'id' | 'project_id' | 'participant_name' | 'status'
-  >
-
-  let interview: InterviewRow
+  // --- Interview kaydını çek ---
+  let interview: { id: string; project_id: string; participant_name: string; status: string } | undefined
   try {
-    const { data: interviewData, error: interviewError } = await supabase
-      .from('interviews')
-      .select('id, project_id, participant_name, status')
-      .eq('id', interviewId)
-      .single()
-
-    if (interviewError) {
-      console.error(
-        `[Supabase Error] Interview sorgusu başarısız: ${interviewError.message} (${interviewError.code})`
-      )
-      return NextResponse.json(
-        { data: null, error: 'Mülakat bulunamadı.' },
-        { status: 404 }
-      )
-    }
-
-    interview = interviewData as InterviewRow
+    const rows = await db
+      .select({
+        id: interviews.id,
+        project_id: interviews.project_id,
+        participant_name: interviews.participant_name,
+        status: interviews.status,
+      })
+      .from(interviews)
+      .where(eq(interviews.id, interviewId))
+      .limit(1)
+    interview = rows[0]
   } catch (err) {
-    console.error('[Interview] Beklenmeyen hata (interview sorgusu):', err)
-    return NextResponse.json(
-      { data: null, error: 'Sunucu hatası.' },
-      { status: 500 }
-    )
+    console.error('[Interview] Interview sorgusu başarısız:', err)
+    return NextResponse.json({ data: null, error: 'Sunucu hatası.' }, { status: 500 })
   }
 
-  // Status kontrolü — 'completed' ise yeni mesaj kabul edilmez
+  if (!interview) {
+    return NextResponse.json({ data: null, error: 'Mülakat bulunamadı.' }, { status: 404 })
+  }
+
   if (interview.status === 'completed') {
     return NextResponse.json(
       { data: null, error: 'Bu mülakat tamamlandı. Yeni mesaj gönderilemez.' },
@@ -299,96 +239,61 @@ export async function POST(
     )
   }
 
-  // --- İlk mesajda: status = 'ongoing', participant_name kaydet ---
   const isFirstMessage = interview.status === 'pending'
 
   if (isFirstMessage) {
     try {
-      const { error: startError } = await supabase
-        .from('interviews')
-        .update({
-          status: 'ongoing',
-          participant_name: participantName,
-        })
-        .eq('id', interviewId)
-
-      if (startError) {
-        console.error(
-          `[Supabase Error] Interview başlatma güncellemesi başarısız: ${startError.message} (${startError.code})`
-        )
-        // Devam et — kritik değil, sonraki mesajlarda tekrar denenebilir
-      }
+      await db
+        .update(interviews)
+        .set({ status: 'ongoing', participant_name: participantName, updated_at: new Date() })
+        .where(eq(interviews.id, interviewId))
     } catch (err) {
-      console.error('[Interview] Beklenmeyen hata (interview başlatma):', err)
+      console.error('[Interview] Interview başlatma güncellemesi başarısız:', err)
     }
   }
 
   // --- Projenin interview_script'ini çek ---
-  type ProjectScriptRow = Pick<
-    Database['public']['Tables']['projects']['Row'],
-    'id' | 'interview_script'
-  >
-
-  let projectScript: ProjectScriptRow['interview_script'] = null
+  let projectScript: unknown = null
   try {
-    const { data: projectData, error: projectError } = await supabase
-      .from('projects')
-      .select('id, interview_script')
-      .eq('id', interview.project_id)
-      .single()
-
-    if (projectError) {
-      console.error(
-        `[Supabase Error] Proje interview_script sorgusu başarısız: ${projectError.message} (${projectError.code})`
-      )
-    } else {
-      projectScript = (projectData as ProjectScriptRow).interview_script
-    }
+    const rows = await db
+      .select({ interview_script: projects.interview_script })
+      .from(projects)
+      .where(eq(projects.id, interview.project_id))
+      .limit(1)
+    projectScript = rows[0]?.interview_script ?? null
   } catch (err) {
-    console.error('[Interview] Beklenmeyen hata (proje script sorgusu):', err)
+    console.error('[Interview] Proje script sorgusu başarısız:', err)
   }
 
   // --- Geçmiş mesajları çek ---
   let history: ConversationMessage[] = []
   try {
-    const { data: messageRows, error: messagesError } = await supabase
-      .from('messages')
-      .select('sender, content, created_at')
-      .eq('interview_id', interviewId)
-      .order('created_at', { ascending: true })
+    const rows = await db
+      .select({ sender: messages.sender, content: messages.content })
+      .from(messages)
+      .where(eq(messages.interview_id, interviewId))
+      .orderBy(asc(messages.created_at))
 
-    if (messagesError) {
-      console.error(
-        `[Supabase Error] Mesaj geçmişi sorgusu başarısız: ${messagesError.message} (${messagesError.code})`
-      )
-      history = []
-    } else {
-      history = (messageRows ?? []).map((m) => ({
-        sender: m.sender as 'agent' | 'participant',
-        content: m.content,
-      }))
-    }
+    history = rows.map((m) => ({
+      sender: m.sender as 'agent' | 'participant',
+      content: m.content,
+    }))
   } catch (err) {
-    console.error('[Interview] Beklenmeyen hata (mesaj geçmişi):', err)
+    console.error('[Interview] Mesaj geçmişi alınamadı:', err)
     history = []
   }
 
-  // --- Gemini config (OpenAI SDK uyumluluk katmanı) ---
   const agentConfig = loadAgentConfig()
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL:
-      agentConfig.model?.base_url ??
-      'https://api.groq.com/openai/v1',
+    baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
   })
 
-  // --- Anlamlı yanıt sayısını hesapla (kapanış eşiği için) ---
   const meaningfulRepliesBeforeThis = countMeaningfulParticipantReplies([
     ...history,
     { sender: 'participant', content: userMessage },
   ])
 
-  // --- Sistem promptunu birleştir ---
   const scriptContext = serializeInterviewScript(projectScript)
   const conversationContext = `
 [Participant name: ${participantName}]
@@ -399,11 +304,8 @@ export async function POST(
 ${scriptContext}
 ---`
 
-  const fullSystemPrompt = `${BASE_INTERVIEWER_SYSTEM_PROMPT}\n\n${conversationContext}`
-
-  // --- LLM mesaj dizisi ---
   const llmMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: 'system', content: fullSystemPrompt },
+    { role: 'system', content: `${BASE_INTERVIEWER_SYSTEM_PROMPT}\n\n${conversationContext}` },
     ...history.map((m): OpenAI.Chat.ChatCompletionMessageParam => ({
       role: m.sender === 'agent' ? 'assistant' : 'user',
       content: m.content,
@@ -411,7 +313,6 @@ ${scriptContext}
     { role: 'user', content: userMessage },
   ]
 
-  // --- Gemini çağrısı ---
   let agentReply: string
   try {
     const completion = await openai.chat.completions.create({
@@ -420,69 +321,42 @@ ${scriptContext}
       max_tokens: agentConfig.model?.max_tokens ?? 512,
       messages: llmMessages,
     })
-
     agentReply = completion.choices[0]?.message?.content?.trim() ?? ''
-
-    if (!agentReply) {
-      throw new Error('Gemini boş yanıt döndürdü.')
-    }
+    if (!agentReply) throw new Error('LLM boş yanıt döndürdü.')
   } catch (err) {
-    console.error('[Interview] Gemini çağrısı başarısız:', err)
+    console.error('[Interview] LLM çağrısı başarısız:', err)
     return NextResponse.json(
       { data: null, error: 'Yapay zeka yanıtı alınamadı. Lütfen tekrar deneyin.' },
       { status: 500 }
     )
   }
 
-  // --- Kapanış tespiti ---
   const isComplete =
-    (meaningfulRepliesBeforeThis >= 3 && isClosingMessage(agentReply)) || meaningfulRepliesBeforeThis >= 10
+    (meaningfulRepliesBeforeThis >= 3 && isClosingMessage(agentReply)) ||
+    meaningfulRepliesBeforeThis >= 10
 
-  // --- Mesajları kaydet (katılımcı + ajan) ---
+  // --- Mesajları kaydet ---
   try {
-    const { error: insertError } = await supabase.from('messages').insert([
-      {
-        interview_id: interviewId,
-        sender: 'participant' as const,
-        content: userMessage,
-      },
-      {
-        interview_id: interviewId,
-        sender: 'agent' as const,
-        content: agentReply,
-      },
+    await db.insert(messages).values([
+      { interview_id: interviewId, sender: 'participant', content: userMessage },
+      { interview_id: interviewId, sender: 'agent', content: agentReply },
     ])
-
-    if (insertError) {
-      console.error(
-        `[Supabase Error] Mesaj kaydı başarısız: ${insertError.message} (${insertError.code})`
-      )
-    }
   } catch (err) {
-    console.error('[Interview] Beklenmeyen hata (mesaj kaydı):', err)
+    console.error('[Interview] Mesaj kaydı başarısız:', err)
   }
 
-  // --- Mülakat tamamlandıysa: status = 'completed' + webhook ---
+  // --- Tamamlandıysa status güncelle + webhook ---
   if (isComplete) {
     try {
-      const { error: completeError } = await supabase
-        .from('interviews')
-        .update({ status: 'completed' })
-        .eq('id', interviewId)
-
-      if (completeError) {
-        console.error(
-          `[Supabase Error] Interview tamamlama güncellemesi başarısız: ${completeError.message} (${completeError.code})`
-        )
-      }
+      await db
+        .update(interviews)
+        .set({ status: 'completed', updated_at: new Date() })
+        .where(eq(interviews.id, interviewId))
     } catch (err) {
-      console.error('[Interview] Beklenmeyen hata (interview tamamlama):', err)
+      console.error('[Interview] Interview tamamlama güncellemesi başarısız:', err)
     }
 
-    // Toplam mesaj sayısı (yeni eklenenler dahil)
-    const totalMessageCount = history.length + 2 // +2: yeni participant + agent mesajı
-
-    // Make.com webhook — fire-and-forget
+    const totalMessageCount = history.length + 2
     const webhookUrl = process.env.MAKE_WEBHOOK_INTERVIEW_URL
     if (webhookUrl) {
       const payload: InterviewCompletedWebhookPayload = {
@@ -493,7 +367,6 @@ ${scriptContext}
         message_count: totalMessageCount,
         completed_at: new Date().toISOString(),
       }
-
       void (async () => {
         try {
           await fetch(webhookUrl, {
@@ -508,7 +381,6 @@ ${scriptContext}
     }
   }
 
-  // --- Başarılı yanıt ---
   return NextResponse.json(
     { data: { reply: agentReply, isComplete }, error: null },
     { status: 200 }

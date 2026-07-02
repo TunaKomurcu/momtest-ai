@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Download, FileText, ListChecks } from 'lucide-react'
-import type { Json } from '@/types/database.types'
 import type { FullResearchBrief, InterviewScript, InterviewQuestion } from '@/types/index'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -15,7 +14,7 @@ type ActiveTab = 'brief' | 'script'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function downloadJson(data: Json, filename: string) {
+function downloadJson(data: unknown, filename: string) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -25,14 +24,14 @@ function downloadJson(data: Json, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-function parseResearchBrief(raw: Json | null): FullResearchBrief | null {
+function parseResearchBrief(raw: unknown): FullResearchBrief | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const b = raw as Record<string, unknown>
   if (!b.productIdea && !b.targetCustomer && !b.riskiestAssumption) return null
   return raw as unknown as FullResearchBrief
 }
 
-function parseInterviewScript(raw: Json | null): InterviewScript | null {
+function parseInterviewScript(raw: unknown): InterviewScript | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const s = raw as Record<string, unknown>
   if (!s.goal && !Array.isArray(s.questions)) return null
@@ -49,8 +48,8 @@ export function BriefViewer({
 }: {
   projectId: string
   productIdea: string
-  researchBrief: Json | null
-  interviewScript: Json | null
+  researchBrief: unknown
+  interviewScript: unknown
 }) {
   const [activeTab, setActiveTab] = useState<ActiveTab>('brief')
 

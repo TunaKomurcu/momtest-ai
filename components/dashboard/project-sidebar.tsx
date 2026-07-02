@@ -1,12 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -20,8 +18,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
@@ -32,16 +28,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { StatusBadge } from '@/components/dashboard/status-badge'
 import { NewProjectDialog } from '@/components/dashboard/new-project-dialog'
+import type { ApiResponse } from '@/types/index'
 import type { DashboardProject } from '@/components/dashboard/types'
 import {
   Compass,
-  LogOut,
-  ChevronsUpDown,
   FolderOpen,
   MoreHorizontal,
   Trash2,
@@ -50,56 +44,47 @@ import {
 export function ProjectSidebar({
   projects,
   selectedId,
-  userEmail,
   onSelect,
   onProjectCreated,
   onProjectDeleted,
 }: {
   projects: DashboardProject[]
   selectedId: string | null
-  userEmail: string
   onSelect: (id: string) => void
   onProjectCreated: (project: DashboardProject) => void
   onProjectDeleted: (id: string) => void
 }) {
-  // Silinecek projeyi tutar — null ise dialog kapalı
   const [deleteTarget, setDeleteTarget] = useState<DashboardProject | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  // ── Logout ────────────────────────────────────────────────────────────────
-  async function handleLogout() {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    // Hard navigation: cookie'leri ve tüm client state'i temizler
-    window.location.href = '/auth/login'
-  }
-
-  // ── Proje silme ───────────────────────────────────────────────────────────
   async function handleDeleteConfirm() {
     if (!deleteTarget) return
     setDeleting(true)
     setDeleteError(null)
 
-    const supabase = createClient()
-    const { error } = await supabase
-      .from('projects')
-      .delete()
-      .eq('id', deleteTarget.id)
+    try {
+      const res = await fetch(`/api/projects/${deleteTarget.id}`, {
+        method: 'DELETE',
+      })
 
-    if (error) {
-      console.error(`[Supabase Error] Proje silinemedi: ${error.message} (${error.code})`)
+      const payload = (await res.json()) as ApiResponse<{ id: string }>
+
+      if (!res.ok || payload.error) {
+        console.error('[ProjectSidebar] Proje silinemedi:', payload.error)
+        setDeleteError('Proje silinemedi. Lütfen tekrar deneyin.')
+        return
+      }
+
+      onProjectDeleted(deleteTarget.id)
+      setDeleteTarget(null)
+    } catch (err) {
+      console.error('[ProjectSidebar] Beklenmeyen hata:', err)
       setDeleteError('Proje silinemedi. Lütfen tekrar deneyin.')
+    } finally {
       setDeleting(false)
-      return
     }
-
-    onProjectDeleted(deleteTarget.id)
-    setDeleteTarget(null)
-    setDeleting(false)
   }
-
-  const initials = userEmail.slice(0, 2).toUpperCase() || 'ME'
 
   return (
     <>
@@ -134,7 +119,6 @@ export function ProjectSidebar({
                   {projects.map((project) => (
                     <SidebarMenuItem key={project.id}>
                       <div className="group/item flex w-full items-center gap-1 pr-1">
-                        {/* Proje butonu */}
                         <SidebarMenuButton
                           isActive={project.id === selectedId}
                           onClick={() => onSelect(project.id)}
@@ -152,7 +136,6 @@ export function ProjectSidebar({
                           />
                         </SidebarMenuButton>
 
-                        {/* Üç nokta menü — hover'da görünür */}
                         <DropdownMenu>
                           <DropdownMenuTrigger
                             render={
@@ -169,17 +152,19 @@ export function ProjectSidebar({
                             <MoreHorizontal className="size-3.5" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent side="right" align="start" className="w-44">
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setDeleteTarget(project)
-                                setDeleteError(null)
-                              }}
-                              className="text-destructive focus:text-destructive gap-2"
-                            >
-                              <Trash2 className="size-4" />
-                              Projeyi Sil
-                            </DropdownMenuItem>
+                            <DropdownMenuGroup>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setDeleteTarget(project)
+                                  setDeleteError(null)
+                                }}
+                                className="text-destructive focus:text-destructive gap-2"
+                              >
+                                <Trash2 className="size-4" />
+                                Projeyi Sil
+                              </DropdownMenuItem>
+                            </DropdownMenuGroup>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -190,57 +175,9 @@ export function ProjectSidebar({
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
-
-        <SidebarFooter>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <SidebarMenuButton
-                      size="lg"
-                      className="data-[state=open]:bg-sidebar-accent"
-                    />
-                  }
-                >
-                  <Avatar className="size-8 rounded-lg">
-                    <AvatarFallback className="rounded-lg text-xs">
-                      {initials}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex flex-1 flex-col text-left leading-tight">
-                    <span className="truncate text-sm font-medium">Hesap</span>
-                    <span className="text-muted-foreground truncate text-xs">
-                      {userEmail}
-                    </span>
-                  </div>
-                  <ChevronsUpDown className="ml-auto size-4" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  side="top"
-                  align="start"
-                  className={cn('w-(--radix-dropdown-menu-trigger-width) min-w-56')}
-                >
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">
-                      {userEmail}
-                    </DropdownMenuLabel>
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem onClick={() => void handleLogout()}>
-                      <LogOut />
-                      Çıkış Yap
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarFooter>
       </Sidebar>
 
-      {/* Silme onay dialogu — Sidebar dışında render edilir, z-index sorunu olmaz */}
+      {/* Silme onay dialogu */}
       <Dialog
         open={deleteTarget !== null}
         onOpenChange={(open) => {

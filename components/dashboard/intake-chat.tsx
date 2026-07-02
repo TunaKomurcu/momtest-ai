@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import type {
   ApiResponse,
@@ -48,26 +47,27 @@ export function IntakeChat({
     setLoadingHistory(true)
     setError(null)
 
-    const supabase = createClient()
-    supabase
-      .from('messages')
-      .select('sender, content, created_at')
-      .eq('interview_id', projectId)
-      .order('created_at', { ascending: true })
-      .then(({ data, error: queryError }) => {
+    fetch(`/api/messages/${projectId}`)
+      .then((res) => res.json() as Promise<ApiResponse<ConversationMessage[]>>)
+      .then((payload) => {
         if (!active) return
-        if (queryError) {
+        if (payload.error || !payload.data) {
           setError('Sohbet geçmişi yüklenemedi.')
           setMessages([])
         } else {
           setMessages(
-            (data ?? []).map((m) => ({
-              sender: m.sender as 'agent' | 'participant',
+            payload.data.map((m) => ({
+              sender: m.sender,
               content: m.content,
               localId: makeId(),
             }))
           )
         }
+        setLoadingHistory(false)
+      })
+      .catch(() => {
+        if (!active) return
+        setError('Sohbet geçmişi yüklenemedi.')
         setLoadingHistory(false)
       })
 
@@ -112,45 +112,41 @@ export function IntakeChat({
 
       setMessages((prev) => [
         ...prev,
-        {
-          sender: 'agent',
-          content: payload.data.reply,
-          localId: makeId(),
-        },
+        { sender: 'agent', content: payload.data.reply, localId: makeId() },
       ])
 
       if (payload.data.isComplete) {
         onComplete()
       }
     } catch {
-      setError('Ağ hatası. Bağlantınızı kontrol edip tekrar deneyin.')
+      setError('Ağ hatası. Lütfen tekrar deneyin.')
     } finally {
       setSending(false)
     }
   }, [input, sending, disabled, projectId, onComplete])
 
-  function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault()
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
       void handleSend()
     }
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full flex-col">
       <ScrollArea className="min-h-0 flex-1">
-        <div ref={scrollRef} className="flex flex-col gap-4 p-4">
+        <div
+          ref={scrollRef}
+          className="flex flex-col gap-4 p-4"
+        >
           {loadingHistory ? (
-            <div className="text-muted-foreground flex items-center justify-center gap-2 py-10 text-sm">
-              <Spinner />
-              Sohbet yükleniyor...
+            <div className="flex items-center justify-center py-8">
+              <Spinner className="size-5" />
             </div>
           ) : messages.length === 0 ? (
-            <div className="text-muted-foreground mx-auto max-w-xs py-10 text-center text-sm text-balance">
-              Intake sohbetini başlatmak için ürün fikrinizi ve kime yönelik
-              olduğunu birkaç cümleyle anlatın. Yapay zeka, test edilebilir bir
-              araştırma özeti çıkarana kadar soru soracak.
-            </div>
+            <p className="text-muted-foreground py-8 text-center text-sm">
+              Ürün fikrinizi anlatarak sohbeti başlatın.
+            </p>
           ) : (
             messages.map((message) => (
               <MessageBubble key={message.localId} message={message} />
@@ -171,62 +167,47 @@ export function IntakeChat({
         </div>
       </ScrollArea>
 
-      <div className="border-t p-3">
-        {error && (
-          <p className="text-destructive mb-2 px-1 text-xs">{error}</p>
-        )}
-        <div className="flex items-end gap-2">
-          <Textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              disabled
-                ? 'Intake tamamlandı.'
-                : 'Yanıtınızı yazın... (Enter ile gönder)'
-            }
-            disabled={disabled || sending}
-            rows={2}
-            className="max-h-36 min-h-0 resize-none"
-          />
-          <Button
-            type="button"
-            size="icon"
-            onClick={() => void handleSend()}
-            disabled={disabled || sending || !input.trim()}
-            aria-label="Gönder"
-          >
-            {sending ? <Spinner /> : <SendHorizonal className="size-4" />}
-          </Button>
+      {!disabled && (
+        <div className="border-t p-3">
+          {error && (
+            <p className="text-destructive mb-2 px-1 text-xs">{error}</p>
+          )}
+          <div className="flex items-end gap-2">
+            <Textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Mesajınızı yazın... (Göndermek için Enter)"
+              disabled={sending}
+              rows={2}
+              className="max-h-36 min-h-0 resize-none"
+            />
+            <Button
+              type="button"
+              size="icon"
+              onClick={() => void handleSend()}
+              disabled={sending || !input.trim()}
+              aria-label="Gönder"
+            >
+              {sending ? (
+                <Spinner />
+              ) : (
+                <SendHorizonal className="size-4" />
+              )}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {disabled && error && (
+        <p className="text-destructive px-4 pb-3 text-xs">{error}</p>
+      )}
     </div>
   )
 }
 
-function renderMarkdown(text: string): React.ReactNode {
-  return text.split('\n').map((line, lineIdx) => (
-    <span key={lineIdx}>
-      {lineIdx > 0 && <br />}
-      {line.split(/(\*\*[^*\n]+\*\*)/).map((part, partIdx) =>
-        part.startsWith('**') && part.endsWith('**') ? (
-          <strong key={partIdx}>{part.slice(2, -2)}</strong>
-        ) : (
-          <span key={partIdx}>{part}</span>
-        )
-      )}
-    </span>
-  ))
-}
-
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isAgent = message.sender === 'agent'
-
-  // <research_brief> blokunu kullanıcıya ham göstermeyelim — temizle.
-  const display = isAgent
-    ? message.content.replace(/<research_brief>[\s\S]*?<\/research_brief>/g, '').trim() ||
-      message.content
-    : message.content
 
   return (
     <div
@@ -253,7 +234,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             : 'bg-primary text-primary-foreground'
         )}
       >
-        {renderMarkdown(display)}
+        {message.content}
       </div>
     </div>
   )

@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Badge } from '@/components/ui/badge'
@@ -45,7 +44,7 @@ export function InterviewManager({
   projectId: string
   onStatusChange?: (projectId: string, status: ProjectStatus) => void
 }) {
-  const [interviews, setInterviews] = useState<InterviewSummary[]>([])
+  const [interviewList, setInterviewList] = useState<InterviewSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [analyzingId, setAnalyzingId] = useState<string | null>(null)
@@ -53,19 +52,20 @@ export function InterviewManager({
   const [error, setError] = useState<string | null>(null)
 
   const loadInterviews = useCallback(async () => {
-    const supabase = createClient()
-    const { data, error: queryError } = await supabase
-      .from('interviews')
-      .select('id, participant_name, status, created_at, evidence_report, signal_score')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: false })
+    try {
+      const res = await fetch(`/api/interviews/${projectId}`)
+      const payload = (await res.json()) as ApiResponse<InterviewSummary[]>
 
-    if (queryError) {
+      if (!res.ok || payload.error || !payload.data) {
+        setError('Mülakatlar yüklenemedi.')
+      } else {
+        setInterviewList(payload.data)
+      }
+    } catch {
       setError('Mülakatlar yüklenemedi.')
-    } else {
-      setInterviews((data ?? []) as InterviewSummary[])
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }, [projectId])
 
   useEffect(() => {
@@ -76,24 +76,23 @@ export function InterviewManager({
     setCreating(true)
     setError(null)
 
-    const supabase = createClient()
-    const { data, error: insertError } = await supabase
-      .from('interviews')
-      .insert({
-        project_id: projectId,
-        participant_name: 'Katılımcı',
-        status: 'pending',
+    try {
+      const res = await fetch(`/api/interviews/${projectId}`, {
+        method: 'POST',
       })
-      .select('id, participant_name, status, created_at, evidence_report, signal_score')
-      .single()
+      const payload = (await res.json()) as ApiResponse<InterviewSummary>
 
-    if (insertError || !data) {
+      if (!res.ok || payload.error || !payload.data) {
+        setError('Mülakat bağlantısı oluşturulamadı.')
+      } else {
+        setInterviewList((prev) => [payload.data, ...prev])
+        onStatusChange?.(projectId, 'interviewing')
+      }
+    } catch {
       setError('Mülakat bağlantısı oluşturulamadı.')
-    } else {
-      setInterviews(prev => [data as InterviewSummary, ...prev])
-      onStatusChange?.(projectId, 'interviewing')
+    } finally {
+      setCreating(false)
     }
-    setCreating(false)
   }, [projectId, onStatusChange])
 
   const analyzeInterview = useCallback(
@@ -113,7 +112,7 @@ export function InterviewManager({
           return
         }
 
-        // Analiz tamamlandı — listeyi yeniden çekerek signal_score'u da güncelle
+        // Analiz tamamlandı — listeyi yenile
         await loadInterviews()
         onStatusChange?.(projectId, 'analyzed')
       } catch {
@@ -122,7 +121,7 @@ export function InterviewManager({
         setAnalyzingId(null)
       }
     },
-    [projectId, onStatusChange]
+    [projectId, onStatusChange, loadInterviews]
   )
 
   const copyLink = useCallback(async (interviewId: string) => {
@@ -135,7 +134,7 @@ export function InterviewManager({
   return (
     <div className="flex flex-col gap-4">
       {/* Proje bazlı konsolide özet — en az 1 analiz varsa görünür */}
-      {!loading && <ProjectSummaryBar interviews={interviews} />}
+      {!loading && <ProjectSummaryBar interviews={interviewList} />}
 
       <div className="flex items-center justify-between gap-3">
         <div className="flex flex-col">
@@ -158,109 +157,98 @@ export function InterviewManager({
         </Button>
       </div>
 
-      {error && <p className="text-destructive text-xs">{error}</p>}
+      {error && (
+        <p className="text-destructive text-xs">{error}</p>
+      )}
 
       {loading ? (
-        <div className="text-muted-foreground flex items-center gap-2 py-4 text-sm">
-          <Spinner className="size-3.5" />
-          Yükleniyor...
+        <div className="flex items-center justify-center py-8">
+          <Spinner className="size-5" />
         </div>
-      ) : interviews.length === 0 ? (
-        <div className="text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed py-8 text-center text-sm">
-          <Users className="size-6 opacity-40" />
-          <p className="max-w-xs text-balance">
-            Henüz mülakat yok. Bir bağlantı oluşturun ve ilk katılımcınızla
-            paylaşın.
+      ) : interviewList.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 py-8 text-center">
+          <Users className="text-muted-foreground size-8" />
+          <p className="text-muted-foreground text-sm">
+            Henüz mülakat bağlantısı yok.
           </p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {interviews.map(interview => {
-            const meta =
-              STATUS_META[interview.status as keyof typeof STATUS_META]
-            const copied = copiedId === interview.id
+          {interviewList.map((interview) => {
+            const meta = STATUS_META[interview.status as keyof typeof STATUS_META] ?? STATUS_META.pending
             const isAnalyzing = analyzingId === interview.id
-            const isAnalyzed = interview.evidence_report != null
-            const canAnalyze =
-              interview.status === 'completed' && !isAnalyzed
+            const isCopied = copiedId === interview.id
+            const hasReport = !!interview.evidence_report
 
             return (
               <div
                 key={interview.id}
-                className="bg-card flex items-center gap-3 rounded-lg border px-3 py-2.5"
+                className="bg-card flex flex-col gap-2 rounded-lg border p-3"
               >
-                {/* Info */}
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="truncate text-sm font-medium">
                       {interview.participant_name}
                     </span>
-                    <Badge
-                      className={`h-4 gap-1 text-[10px] ${meta.badgeClass}`}
-                    >
+                    <Badge className={meta.badgeClass} variant="outline">
                       {meta.label}
                     </Badge>
-                    {isAnalyzed && (
-                      <Badge className="h-4 gap-1 border-transparent bg-violet-500/15 text-[10px] text-violet-400">
-                        Analiz edildi
-                      </Badge>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-1">
+                    {/* Bağlantıyı kopyala */}
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => void copyLink(interview.id)}
+                      title="Bağlantıyı kopyala"
+                    >
+                      {isCopied ? (
+                        <Check className="size-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="size-3.5" />
+                      )}
+                    </Button>
+
+                    {/* Yeni sekmede aç */}
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() =>
+                        window.open(`/interview/${interview.id}`, '_blank')
+                      }
+                      title="Mülakatı aç"
+                    >
+                      <ExternalLink className="size-3.5" />
+                    </Button>
+
+                    {/* Raporu görüntüle */}
+                    {hasReport && (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() =>
+                          window.open(`/report/${interview.id}`, '_blank')
+                        }
+                        title="Raporu görüntüle"
+                      >
+                        <FlaskConical className="size-3.5" />
+                      </Button>
+                    )}
+
+                    {/* Analiz et */}
+                    {interview.status === 'completed' && !hasReport && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void analyzeInterview(interview.id)}
+                        disabled={isAnalyzing}
+                      >
+                        {isAnalyzing && <Spinner data-icon="inline-start" />}
+                        {isAnalyzing ? 'Analiz ediliyor...' : 'Analiz Et'}
+                      </Button>
                     )}
                   </div>
-                  <span className="text-muted-foreground truncate font-mono text-[11px]">
-                    /interview/{interview.id}
-                  </span>
-                </div>
-
-                {/* Actions */}
-                <div className="flex shrink-0 items-center gap-1">
-                  {isAnalyzed && (
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => window.open(`/report/${interview.id}`, '_blank')}
-                        title="Raporu gör"
-                    >
-                        Raporu Gör
-                    </Button>
-                    )}
-                  {canAnalyze && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void analyzeInterview(interview.id)}
-                      disabled={isAnalyzing}
-                      title="Analiz et"
-                    >
-                      {isAnalyzing ? (
-                        <Spinner data-icon="inline-start" />
-                      ) : (
-                        <FlaskConical data-icon="inline-start" className="size-3.5" />
-                      )}
-                      {isAnalyzing ? 'Analiz ediliyor...' : 'Analiz Et'}
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => void copyLink(interview.id)}
-                    title="Bağlantıyı kopyala"
-                  >
-                    {copied ? (
-                      <Check className="size-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="size-3.5" />
-                    )}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() =>
-                      window.open(`/interview/${interview.id}`, '_blank')
-                    }
-                    title="Mülakatı aç"
-                  >
-                    <ExternalLink className="size-3.5" />
-                  </Button>
                 </div>
               </div>
             )

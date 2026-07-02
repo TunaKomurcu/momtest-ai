@@ -1,4 +1,6 @@
-import { createClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/index'
+import { interviews } from '@/lib/db/schema'
+import { eq } from 'drizzle-orm'
 import { ParticipantChat } from './participant-chat'
 import { Compass } from 'lucide-react'
 
@@ -8,15 +10,17 @@ export default async function InterviewPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const supabase = await createClient()
 
-  const { data: interview, error } = await supabase
-    .from('interviews')
-    .select('id, status')
-    .eq('id', id)
-    .single()
+  const rows = await db
+    .select({ id: interviews.id, status: interviews.status })
+    .from(interviews)
+    .where(eq(interviews.id, id))
+    .limit(1)
+    .catch(() => [])
 
-  if (error || !interview) {
+  const interview = rows[0]
+
+  if (!interview) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center p-6 text-center">
         <div className="bg-primary/10 mb-4 flex size-12 items-center justify-center rounded-xl">

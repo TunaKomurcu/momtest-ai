@@ -1,10 +1,11 @@
 import { NextRequest } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/index'
+import { projects, messages } from '@/lib/db/schema'
+import { eq, asc } from 'drizzle-orm'
 import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
-import type { Database } from '@/types/database.types'
 import type {
   OpenAIAgentConfig,
   ConversationMessage,
@@ -14,7 +15,7 @@ import type {
 } from '@/types/index'
 
 // ---------------------------------------------------------------------------
-// Rate limiting — authenticated route: max 20 req/min per IP
+// Rate limiting — max 20 req/min per IP
 // ---------------------------------------------------------------------------
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
@@ -24,14 +25,11 @@ const RATE_LIMIT_WINDOW_MS = 60_000
 function checkRateLimit(ip: string): boolean {
   const now = Date.now()
   const entry = rateLimitMap.get(ip)
-
   if (!entry || now > entry.resetAt) {
     rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
     return true
   }
-
   if (entry.count >= RATE_LIMIT_MAX) return false
-
   entry.count++
   return true
 }
@@ -40,10 +38,6 @@ function checkRateLimit(ip: string): boolean {
 // System prompts
 // ---------------------------------------------------------------------------
 
-/**
- * SKILL.md Skill 2 — Assumption Mapping
- * Intake mesajlarından yapılandırılmış Research Brief + Assumption Map üretir.
- */
 const RESEARCH_BRIEF_SYSTEM_PROMPT = `You are a customer discovery architect trained in Mom Test principles.
 
 You will receive a PM intake conversation. Your task is to produce a structured Research Brief and Assumption Map.
@@ -82,10 +76,6 @@ Output format:
 Assumption categories to cover: Problem, Frequency, Urgency, Workaround, Budget, Buyer/User split, Channel, Switching.
 Risk levels: high, medium, low. Include at least 4 assumptions.`
 
-/**
- * SKILL.md Skill 3 — Question Design
- * Research Brief + question-bank.md kalıplarından yönlendirici OLMAYAN Interview Script üretir.
- */
 const INTERVIEW_SCRIPT_SYSTEM_PROMPT = `You are a customer discovery interview designer trained in Mom Test principles.
 
 You will receive a Research Brief (JSON). Your task is to produce a structured Interview Script.
@@ -96,23 +86,6 @@ Core rules (NEVER violate):
 - Ask about PAST behavior and real examples, not future intentions.
 - Ask one question at a time.
 - Follow the default sequence: context → recent example → workflow → workaround → cost/frequency → alternatives → commitment history → close.
-
-Good question patterns to draw from:
-- Tell me about the last time this happened.
-- Walk me through how you handled it.
-- What did you do next?
-- What tools or people were involved?
-- What made that difficult?
-- How often does this happen?
-- What does it cost you in time, money, risk, or frustration?
-- What have you tried already?
-- Why did or didn't that solution work?
-- Who else is involved in this decision?
-- Where does the budget or approval come from?
-- Who else should I talk to?
-- Is there anything important I failed to ask?
-
-Question bank categories: situation discovery, workflow discovery, workaround discovery, cost and urgency, budget and commitment, closing.
 
 Output ONLY valid JSON. No prose, no markdown fences, no explanation — just the JSON object.
 
@@ -144,12 +117,7 @@ Generate 8-10 questions that cover the riskiest assumptions from the Research Br
 
 function loadOpenAIConfig(): Partial<OpenAIAgentConfig> {
   try {
-    const yamlPath = path.join(
-      process.cwd(),
-      'mom-test-customer-discovery',
-      'agents',
-      'openai.yaml'
-    )
+    const yamlPath = path.join(process.cwd(), 'mom-test-customer-discovery', 'agents', 'openai.yaml')
     const raw = fs.readFileSync(yamlPath, 'utf-8')
     return yamlLoad(raw) as Partial<OpenAIAgentConfig>
   } catch {
@@ -158,48 +126,31 @@ function loadOpenAIConfig(): Partial<OpenAIAgentConfig> {
   }
 }
 
-/**
- * SSE formatında bir chunk yazar.
- * Chunk: `data: <JSON>\n\n`
- */
 function encodeChunk(chunk: GenerateStreamChunk): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(chunk)}\n\n`)
 }
 
-/**
- * Streaming OpenAI yanıtını toplar ve tam string olarak döner.
- * Aynı zamanda her delta'yı SSE controller'a yazar.
- */
 async function streamAndCollect(
   stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>,
   controller: ReadableStreamDefaultController,
   stage: GenerateStreamChunk['stage']
 ): Promise<string> {
   let fullContent = ''
-
   for await (const chunk of stream) {
     const delta = chunk.choices[0]?.delta?.content ?? ''
     if (delta) {
       fullContent += delta
-      controller.enqueue(
-        encodeChunk({ stage, content: delta })
-      )
+      controller.enqueue(encodeChunk({ stage, content: delta }))
     }
   }
-
   return fullContent
 }
 
-/**
- * Toplanan LLM çıktısını JSON'a parse eder.
- * LLM bazen ```json ... ``` fence ekleyebilir — temizlenir.
- */
 function parseJsonOutput<T>(raw: string): T | null {
   const cleaned = raw
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim()
-
   try {
     return JSON.parse(cleaned) as T
   } catch {
@@ -216,7 +167,6 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> }
 ): Promise<Response> {
-  // --- Rate limiting ---
   const ip =
     request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
     request.headers.get('x-real-ip') ??
@@ -229,7 +179,6 @@ export async function POST(
     )
   }
 
-  // --- projectId ---
   const { projectId } = await params
 
   if (!projectId) {
@@ -239,82 +188,45 @@ export async function POST(
     )
   }
 
-  // --- Supabase auth ---
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    return new Response(
-      JSON.stringify({ data: null, error: 'Kimlik doğrulaması gereklidir.' }),
-      { status: 401, headers: { 'Content-Type': 'application/json' } }
-    )
-  }
-
   // --- Proje doğrulama ---
-  type ProjectRow = Pick<
-    Database['public']['Tables']['projects']['Row'],
-    'id' | 'user_id' | 'product_idea'
-  >
-
-  let project: ProjectRow
+  let project: { id: string; product_idea: string } | undefined
   try {
-    const { data: projectData, error: projectError } = await supabase
-      .from('projects')
-      .select('id, user_id, product_idea')
-      .eq('id', projectId)
-      .single()
-
-    if (projectError) {
-      console.error(
-        `[Supabase Error] Proje sorgusu başarısız: ${projectError.message} (${projectError.code})`
-      )
-      return new Response(
-        JSON.stringify({ data: null, error: 'Proje bulunamadı.' }),
-        { status: 404, headers: { 'Content-Type': 'application/json' } }
-      )
-    }
-
-    project = projectData as ProjectRow
+    const rows = await db
+      .select({ id: projects.id, product_idea: projects.product_idea })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1)
+    project = rows[0]
   } catch (err) {
-    console.error('[Generate] Beklenmeyen hata (proje sorgusu):', err)
+    console.error('[Generate] Proje sorgusu başarısız:', err)
     return new Response(
       JSON.stringify({ data: null, error: 'Sunucu hatası.' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     )
   }
 
-  if (project.user_id !== user.id) {
+  if (!project) {
     return new Response(
-      JSON.stringify({ data: null, error: 'Bu projeye erişim yetkiniz yok.' }),
-      { status: 403, headers: { 'Content-Type': 'application/json' } }
+      JSON.stringify({ data: null, error: 'Proje bulunamadı.' }),
+      { status: 404, headers: { 'Content-Type': 'application/json' } }
     )
   }
 
   // --- Intake mesajlarını çek ---
   let intakeMessages: ConversationMessage[] = []
   try {
-    const { data: messageRows, error: messagesError } = await supabase
-      .from('messages')
-      .select('sender, content, created_at')
-      .eq('interview_id', projectId)
-      .order('created_at', { ascending: true })
+    const rows = await db
+      .select({ sender: messages.sender, content: messages.content })
+      .from(messages)
+      .where(eq(messages.interview_id, projectId))
+      .orderBy(asc(messages.created_at))
 
-    if (messagesError) {
-      console.error(
-        `[Supabase Error] Intake mesajları sorgusu başarısız: ${messagesError.message} (${messagesError.code})`
-      )
-    } else {
-      intakeMessages = (messageRows ?? []).map((m) => ({
-        sender: m.sender as 'agent' | 'participant',
-        content: m.content,
-      }))
-    }
+    intakeMessages = rows.map((m) => ({
+      sender: m.sender as 'agent' | 'participant',
+      content: m.content,
+    }))
   } catch (err) {
-    console.error('[Generate] Beklenmeyen hata (mesaj sorgusu):', err)
+    console.error('[Generate] Mesaj sorgusu başarısız:', err)
   }
 
   if (intakeMessages.length === 0) {
@@ -324,22 +236,18 @@ export async function POST(
     )
   }
 
-  // --- Gemini config (OpenAI SDK uyumluluk katmanı) ---
   const agentConfig = loadOpenAIConfig()
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL:
-      agentConfig.model?.base_url ??
-      'https://api.groq.com/openai/v1',
+    baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
   })
 
-  // Intake konuşmasını tek string'e çevir (LLM bağlamı için)
   const intakeTranscript = intakeMessages
     .map((m) => `${m.sender === 'agent' ? 'Discovery Architect' : 'PM'}: ${m.content}`)
     .join('\n')
 
   // ---------------------------------------------------------------------------
-  // Streaming response — ReadableStream
+  // Streaming ReadableStream
   // ---------------------------------------------------------------------------
 
   const stream = new ReadableStream({
@@ -348,9 +256,7 @@ export async function POST(
       let rawScriptOutput = ''
 
       try {
-        // ----------------------------------------------------------------
-        // ADIM 1: Research Brief (Skill 2)
-        // ----------------------------------------------------------------
+        // ADIM 1: Research Brief
         const briefStream = await openai.chat.completions.create({
           model: agentConfig.model?.name ?? 'gemini-flash-latest',
           temperature: agentConfig.model?.temperature ?? 0.3,
@@ -366,31 +272,20 @@ export async function POST(
         })
 
         rawBriefOutput = await streamAndCollect(briefStream, controller, 'research_brief')
-
-        // Brief'i parse et
         const parsedBrief = parseJsonOutput<FullResearchBrief>(rawBriefOutput)
 
-        // Supabase'e kaydet
         if (parsedBrief) {
           try {
-            const { error: briefUpdateError } = await supabase
-              .from('projects')
-              .update({ research_brief: parsedBrief })
-              .eq('id', projectId)
-
-            if (briefUpdateError) {
-              console.error(
-                `[Supabase Error] research_brief kaydı başarısız: ${briefUpdateError.message} (${briefUpdateError.code})`
-              )
-            }
+            await db
+              .update(projects)
+              .set({ research_brief: parsedBrief, updated_at: new Date() })
+              .where(eq(projects.id, projectId))
           } catch (err) {
-            console.error('[Generate] Beklenmeyen hata (research_brief kayıt):', err)
+            console.error('[Generate] research_brief kaydı başarısız:', err)
           }
         }
 
-        // ----------------------------------------------------------------
-        // ADIM 2: Interview Script (Skill 3)
-        // ----------------------------------------------------------------
+        // ADIM 2: Interview Script
         const scriptStream = await openai.chat.completions.create({
           model: agentConfig.model?.name ?? 'gemini-flash-latest',
           temperature: agentConfig.model?.temperature ?? 0.4,
@@ -406,31 +301,20 @@ export async function POST(
         })
 
         rawScriptOutput = await streamAndCollect(scriptStream, controller, 'interview_script')
-
-        // Script'i parse et
         const parsedScript = parseJsonOutput<InterviewScript>(rawScriptOutput)
 
-        // Supabase'e kaydet
         if (parsedScript) {
           try {
-            const { error: scriptUpdateError } = await supabase
-              .from('projects')
-              .update({ interview_script: parsedScript })
-              .eq('id', projectId)
-
-            if (scriptUpdateError) {
-              console.error(
-                `[Supabase Error] interview_script kaydı başarısız: ${scriptUpdateError.message} (${scriptUpdateError.code})`
-              )
-            }
+            await db
+              .update(projects)
+              .set({ interview_script: parsedScript, updated_at: new Date() })
+              .where(eq(projects.id, projectId))
           } catch (err) {
-            console.error('[Generate] Beklenmeyen hata (interview_script kayıt):', err)
+            console.error('[Generate] interview_script kaydı başarısız:', err)
           }
         }
 
-        // ----------------------------------------------------------------
         // Make.com webhook — fire-and-forget
-        // ----------------------------------------------------------------
         const webhookUrl = process.env.MAKE_WEBHOOK_ANALYSIS_URL
         if (webhookUrl) {
           void (async () => {
@@ -446,9 +330,6 @@ export async function POST(
           })()
         }
 
-        // ----------------------------------------------------------------
-        // Done chunk
-        // ----------------------------------------------------------------
         controller.enqueue(
           encodeChunk({
             stage: 'done',
@@ -460,12 +341,7 @@ export async function POST(
         )
       } catch (err) {
         console.error('[Generate] Stream sırasında hata:', err)
-        controller.enqueue(
-          encodeChunk({
-            stage: 'error',
-            content: 'Üretim sırasında bir hata oluştu.',
-          })
-        )
+        controller.enqueue(encodeChunk({ stage: 'error', content: 'Üretim sırasında bir hata oluştu.' }))
       } finally {
         controller.close()
       }
@@ -478,7 +354,7 @@ export async function POST(
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no', // Nginx proxy buffering'i devre dışı bırakır
+      'X-Accel-Buffering': 'no',
     },
   })
 }

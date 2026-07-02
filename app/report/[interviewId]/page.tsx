@@ -1,5 +1,7 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/index'
+import { interviews, messages } from '@/lib/db/schema'
+import { eq, asc } from 'drizzle-orm'
 import { EvidenceReport } from './evidence-report'
 
 export default async function ReportPage({
@@ -8,42 +10,37 @@ export default async function ReportPage({
   params: Promise<{ interviewId: string }>
 }) {
   const { interviewId } = await params
-  const supabase = await createClient()
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Interview'u çek
+  const interviewRows = await db
+    .select({
+      id: interviews.id,
+      participant_name: interviews.participant_name,
+      signal_score: interviews.signal_score,
+      evidence_report: interviews.evidence_report,
+    })
+    .from(interviews)
+    .where(eq(interviews.id, interviewId))
+    .limit(1)
+    .catch(() => [])
 
-  if (!user) redirect('/auth/login')
+  const interview = interviewRows[0]
 
-  // Fetch interview
-  const { data: interview, error } = await supabase
-    .from('interviews')
-    .select('id, project_id, participant_name, signal_score, evidence_report')
-    .eq('id', interviewId)
-    .single()
-
-  if (error || !interview || !interview.evidence_report) {
+  if (!interview || !interview.evidence_report) {
     redirect('/dashboard')
   }
 
-  // Verify ownership
-  const { data: project } = await supabase
-    .from('projects')
-    .select('user_id')
-    .eq('id', interview.project_id)
-    .single()
-
-  if (!project || project.user_id !== user.id) {
-    redirect('/dashboard')
-  }
-
-  // Fetch transcript messages
-  const { data: messages } = await supabase
-    .from('messages')
-    .select('id, sender, content')
-    .eq('interview_id', interviewId)
-    .order('created_at', { ascending: true })
+  // Transkript mesajlarını çek
+  const messageRows = await db
+    .select({
+      id: messages.id,
+      sender: messages.sender,
+      content: messages.content,
+    })
+    .from(messages)
+    .where(eq(messages.interview_id, interviewId))
+    .orderBy(asc(messages.created_at))
+    .catch(() => [])
 
   return (
     <EvidenceReport
@@ -53,7 +50,7 @@ export default async function ReportPage({
         evidence_report: interview.evidence_report,
       }}
       messages={
-        (messages ?? []) as Array<{
+        messageRows as Array<{
           id: string
           sender: 'agent' | 'participant'
           content: string
