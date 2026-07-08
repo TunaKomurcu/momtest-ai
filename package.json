@@ -10,7 +10,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "eval": "tsx lib/evals/run-evals.ts",
+    "demo:loop": "tsx lib/evals/demo-loop.ts",
+    "demo:harness": "tsx lib/evals/demo-harness.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -43,6 +46,7 @@
     "eslint-config-next": "16.2.9",
     "msw": "^2.14.6",
     "tailwindcss": "^4",
+    "tsx": "^4.23.0",
     "typescript": "^5.9.3",
     "vitest": "^3.2.6"
   }

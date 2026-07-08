@@ -1,0 +1,34 @@
+[
+  {
+    "sender": "agent",
+    "content": "Thanks for joining. To help you design better customer interviews, I need to understand your product idea first. In one or two sentences, what are you building and who is it for?"
+  },
+  {
+    "sender": "participant",
+    "content": "We're building an AI-powered tool that automatically analyzes customer discovery interview recordings and transcripts for B2B SaaS companies. It extracts key signals, identifies assumptions being tested, and scores the quality of the evidence collected."
+  },
+  {
+    "sender": "agent",
+    "content": "Interesting. Who specifically inside a B2B SaaS company would use this — and what are they doing today when they finish an interview?"
+  },
+  {
+    "sender": "participant",
+    "content": "Primarily product managers and founders who are doing customer discovery. Right now they take notes manually, maybe record the call, then spend an hour or more writing up a summary in Notion or a Google Doc. Most of the time they rely on memory and whatever they jotted down during the call."
+  },
+  {
+    "sender": "agent",
+    "content": "When you say they spend an hour writing up a summary — have you seen this break down in practice? What actually goes wrong with that process?"
+  },
+  {
+    "sender": "participant",
+    "content": "Yes, a few things. First, important signals get lost because they weren't captured in the moment. Second, PMs often can't tell the difference between a strong behavioral signal and a compliment — they treat 'this is a great idea' the same as 'we paid $10k last year to solve this.' Third, when you have 15 interviews across a quarter, synthesizing them is almost impossible without a structured system. Most teams just skip the synthesis."
+  },
+  {
+    "sender": "agent",
+    "content": "Of those three problems — losing signals, misclassifying evidence quality, and synthesis — which one do you believe is the riskiest assumption for your product? In other words, which problem might not actually be painful enough for someone to pay to fix?"
+  },
+  {
+    "sender": "participant",
+    "content": "Honestly, evidence misclassification. I believe PMs genuinely can't distinguish weak from strong signals, and that this causes them to pursue the wrong ideas. But I haven't confirmed that they feel this as a painful gap — they might just accept it as part of the job. That's the assumption I'm most worried about. If they don't feel the pain, they won't pay for a fix."
+  }
+]

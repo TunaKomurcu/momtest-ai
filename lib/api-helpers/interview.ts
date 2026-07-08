@@ -77,7 +77,12 @@ export function serializeInterviewScript(script: Json | null): string {
 
 /**
  * Mülakat kapanması gerekip gerekmediğini belirler.
- * min 3 replies gate + isClosingMessage VEYA >= 10 replies threshold.
+ *
+ * Kurallar:
+ * 1. `messages` sadece geçmiş (history) mesajlarını içermeli — current user message dahil edilmemeli.
+ * 2. agentReply en az 5 kelime içermeli (tek kelimelik false positive önlemi).
+ * 3. Closing phrase >= 3 anlamlı geçmiş yanıt koşuluyla birleşir.
+ * 4. >= 10 anlamlı yanıt varsa closing phrase olmadan da kapanır.
  */
 export function shouldCloseInterview(
   messages: ConversationMessage[],
@@ -85,6 +90,10 @@ export function shouldCloseInterview(
 ): boolean {
   const meaningful = countMeaningfulParticipantReplies(messages)
   if (meaningful >= 10) return true
-  if (meaningful >= 3 && isClosingMessage(agentReply)) return true
+  if (
+    meaningful >= 3 &&
+    agentReply.trim().split(/\s+/).length >= 5 &&
+    isClosingMessage(agentReply)
+  ) return true
   return false
 }

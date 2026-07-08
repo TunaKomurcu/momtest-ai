@@ -6,6 +6,8 @@ import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
+import { callWithJsonRetry, parseAndClean } from '@/lib/ai-guards/json-retry'
+import { validateStructuredAnalysis } from '@/lib/ai-guards/analysis-validator'
 import type {
   ApiResponse,
   OpenAIAgentConfig,
@@ -145,20 +147,6 @@ function loadAgentConfig(): Partial<OpenAIAgentConfig> {
   } catch {
     console.warn('[Analyze] openai.yaml okunamadı, varsayılan değerler kullanılıyor.')
     return {}
-  }
-}
-
-function parseJsonOutput<T>(raw: string): T | null {
-  const cleaned = raw
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim()
-
-  try {
-    return JSON.parse(cleaned) as T
-  } catch {
-    console.error('[Analyze] JSON parse hatası. Ham çıktı:', raw.slice(0, 300))
-    return null
   }
 }
 
@@ -430,8 +418,55 @@ export async function POST(
     )
   }
 
-  // --- Analiz çıktısını parse et ---
-  const analysis = parseJsonOutput<StructuredAnalysis>(rawAnalysis)
+  // --- Analiz çıktısını parse + validate + retry ---
+  let analysis: StructuredAnalysis | null = parseAndClean<StructuredAnalysis>(rawAnalysis)
+
+  if (analysis !== null) {
+    // Parse başarılı — validation yap, fail ederse retry
+    const analysisValidation = validateStructuredAnalysis(analysis)
+    if (!analysisValidation.ok) {
+      console.warn('[Analyze] İlk çıktı validation\'ı geçemedi, retry başlıyor. Issues:', analysisValidation.issues)
+      analysis = await callWithJsonRetry<StructuredAnalysis>(
+        openai,
+        {
+          model: agentConfig.model?.name ?? 'gemini-flash-latest',
+          temperature: 0.2,
+          max_tokens: agentConfig.model?.max_tokens ?? 2048,
+          stream: false,
+          messages: [
+            { role: 'system', content: EVIDENCE_ANALYST_SYSTEM_PROMPT },
+            {
+              role: 'user',
+              content: `Participant name: ${interview.participant_name}\n\nInterview transcript:\n${transcript}`,
+            },
+          ],
+        },
+        validateStructuredAnalysis,
+        '[Analyze]'
+      )
+    }
+  } else {
+    // Parse başarısız — retry hem parse hem validate için
+    console.warn('[Analyze] İlk çıktı JSON parse edilemedi, retry başlıyor.')
+    analysis = await callWithJsonRetry<StructuredAnalysis>(
+      openai,
+      {
+        model: agentConfig.model?.name ?? 'gemini-flash-latest',
+        temperature: 0.2,
+        max_tokens: agentConfig.model?.max_tokens ?? 2048,
+        stream: false,
+        messages: [
+          { role: 'system', content: EVIDENCE_ANALYST_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: `Participant name: ${interview.participant_name}\n\nInterview transcript:\n${transcript}`,
+          },
+        ],
+      },
+      validateStructuredAnalysis,
+      '[Analyze]'
+    )
+  }
 
   if (!analysis) {
     return NextResponse.json(

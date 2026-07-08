@@ -6,6 +6,9 @@ import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
+import { callWithJsonRetry, parseAndClean } from '@/lib/ai-guards/json-retry'
+import { validateFullResearchBrief, validateInterviewScript } from '@/lib/ai-guards/brief-validator'
+import { validateStructuredAnalysis } from '@/lib/ai-guards/analysis-validator'
 import type {
   OpenAIAgentConfig,
   ConversationMessage,
@@ -272,7 +275,56 @@ export async function POST(
         })
 
         rawBriefOutput = await streamAndCollect(briefStream, controller, 'research_brief')
-        const parsedBrief = parseJsonOutput<FullResearchBrief>(rawBriefOutput)
+
+        // --- ADIM 1: parse + validate + retry (stream UI zaten bitti) ---
+        let parsedBrief: FullResearchBrief | null = parseAndClean<FullResearchBrief>(rawBriefOutput)
+
+        if (parsedBrief !== null) {
+          // Parse başarılı — validation yap, fail ederse retry
+          const briefValidation = validateFullResearchBrief(parsedBrief)
+          if (!briefValidation.ok) {
+            console.warn('[Generate/brief] İlk çıktı validation\'ı geçemedi, retry başlıyor. Issues:', briefValidation.issues)
+            parsedBrief = await callWithJsonRetry<FullResearchBrief>(
+              openai,
+              {
+                model: agentConfig.model?.name ?? 'gemini-flash-latest',
+                temperature: agentConfig.model?.temperature ?? 0.3,
+                max_tokens: agentConfig.model?.max_tokens ?? 1500,
+                stream: false,
+                messages: [
+                  { role: 'system', content: RESEARCH_BRIEF_SYSTEM_PROMPT },
+                  {
+                    role: 'user',
+                    content: `Product idea: ${project.product_idea}\n\nIntake conversation:\n${intakeTranscript}`,
+                  },
+                ],
+              },
+              validateFullResearchBrief,
+              '[Generate/brief]'
+            )
+          }
+        } else {
+          // Parse başarısız — retry hem parse hem validate için
+          console.warn('[Generate/brief] İlk çıktı JSON parse edilemedi, retry başlıyor.')
+          parsedBrief = await callWithJsonRetry<FullResearchBrief>(
+            openai,
+            {
+              model: agentConfig.model?.name ?? 'gemini-flash-latest',
+              temperature: agentConfig.model?.temperature ?? 0.3,
+              max_tokens: agentConfig.model?.max_tokens ?? 1500,
+              stream: false,
+              messages: [
+                { role: 'system', content: RESEARCH_BRIEF_SYSTEM_PROMPT },
+                {
+                  role: 'user',
+                  content: `Product idea: ${project.product_idea}\n\nIntake conversation:\n${intakeTranscript}`,
+                },
+              ],
+            },
+            validateFullResearchBrief,
+            '[Generate/brief]'
+          )
+        }
 
         if (parsedBrief) {
           try {
@@ -301,7 +353,56 @@ export async function POST(
         })
 
         rawScriptOutput = await streamAndCollect(scriptStream, controller, 'interview_script')
-        const parsedScript = parseJsonOutput<InterviewScript>(rawScriptOutput)
+
+        // --- ADIM 2: parse + validate + retry (stream UI zaten bitti) ---
+        let parsedScript: InterviewScript | null = parseAndClean<InterviewScript>(rawScriptOutput)
+
+        if (parsedScript !== null) {
+          // Parse başarılı — validation yap, fail ederse retry
+          const scriptValidation = validateInterviewScript(parsedScript)
+          if (!scriptValidation.ok) {
+            console.warn('[Generate/script] İlk çıktı validation\'ı geçemedi, retry başlıyor. Issues:', scriptValidation.issues)
+            parsedScript = await callWithJsonRetry<InterviewScript>(
+              openai,
+              {
+                model: agentConfig.model?.name ?? 'gemini-flash-latest',
+                temperature: agentConfig.model?.temperature ?? 0.4,
+                max_tokens: agentConfig.model?.max_tokens ?? 2000,
+                stream: false,
+                messages: [
+                  { role: 'system', content: INTERVIEW_SCRIPT_SYSTEM_PROMPT },
+                  {
+                    role: 'user',
+                    content: `Research Brief:\n${rawBriefOutput}\n\nProduct idea: ${project.product_idea}`,
+                  },
+                ],
+              },
+              validateInterviewScript,
+              '[Generate/script]'
+            )
+          }
+        } else {
+          // Parse başarısız — retry hem parse hem validate için
+          console.warn('[Generate/script] İlk çıktı JSON parse edilemedi, retry başlıyor.')
+          parsedScript = await callWithJsonRetry<InterviewScript>(
+            openai,
+            {
+              model: agentConfig.model?.name ?? 'gemini-flash-latest',
+              temperature: agentConfig.model?.temperature ?? 0.4,
+              max_tokens: agentConfig.model?.max_tokens ?? 2000,
+              stream: false,
+              messages: [
+                { role: 'system', content: INTERVIEW_SCRIPT_SYSTEM_PROMPT },
+                {
+                  role: 'user',
+                  content: `Research Brief:\n${rawBriefOutput}\n\nProduct idea: ${project.product_idea}`,
+                },
+              ],
+            },
+            validateInterviewScript,
+            '[Generate/script]'
+          )
+        }
 
         if (parsedScript) {
           try {

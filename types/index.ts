@@ -273,3 +273,14 @@ export interface StructuredAnalysis {
   openQuestions: string[]
   recommendedNextStep: string
 }
+// ---------------------------------------------------------------------------
+// AI Guards — Loop & Harness validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Validation sonucu generic tipi.
+ * LLM çıktısının doğruluğunu kontrol eden fonksiyonlar bu tipi döndürür.
+ */
+export type ValidationResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; issues: string[] }

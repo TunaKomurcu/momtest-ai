@@ -289,10 +289,7 @@ export async function POST(
     baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
   })
 
-  const meaningfulRepliesBeforeThis = countMeaningfulParticipantReplies([
-    ...history,
-    { sender: 'participant', content: userMessage },
-  ])
+  const meaningfulRepliesBeforeThis = countMeaningfulParticipantReplies(history)
 
   const scriptContext = serializeInterviewScript(projectScript)
   const conversationContext = `
@@ -332,7 +329,9 @@ ${scriptContext}
   }
 
   const isComplete =
-    (meaningfulRepliesBeforeThis >= 3 && isClosingMessage(agentReply)) ||
+    (meaningfulRepliesBeforeThis >= 3 &&
+      agentReply.trim().split(/\s+/).length >= 5 &&
+      isClosingMessage(agentReply)) ||
     meaningfulRepliesBeforeThis >= 10
 
   // --- Mesajları kaydet ---

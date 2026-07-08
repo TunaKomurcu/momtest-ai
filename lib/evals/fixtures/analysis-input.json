@@ -1,0 +1,62 @@
+[
+  {
+    "id": "msg-001",
+    "sender": "agent",
+    "content": "Thanks for taking the time. I am trying to understand how this situation works in your real workflow. I am not here to sell anything. I will mostly ask about what you already do today and recent examples. Ready to get started?"
+  },
+  {
+    "id": "msg-002",
+    "sender": "participant",
+    "content": "Sure, happy to help."
+  },
+  {
+    "id": "msg-003",
+    "sender": "agent",
+    "content": "Tell me about the last customer interview you conducted for discovery — not a sales call, but one where you were trying to learn whether to build something."
+  },
+  {
+    "id": "msg-004",
+    "sender": "participant",
+    "content": "Last week actually. We're exploring a feature that would let users export their dashboard data to Excel automatically. I talked to three customers who'd requested it in the past."
+  },
+  {
+    "id": "msg-005",
+    "sender": "agent",
+    "content": "Walk me through what you did after one of those calls ended. What happened next?"
+  },
+  {
+    "id": "msg-006",
+    "sender": "participant",
+    "content": "I had some rough notes in a Google Doc during the call — mostly bullet points. After the call I spent maybe 30 minutes writing up a summary of what they said, their main pain points, and whether I thought we should build it. Then I shared the doc with my co-founder."
+  },
+  {
+    "id": "msg-007",
+    "sender": "agent",
+    "content": "You mentioned rough notes during the call. What usually gets missed or lost when you're taking notes live?"
+  },
+  {
+    "id": "msg-008",
+    "sender": "participant",
+    "content": "Honestly, the specific examples. Like someone will say 'last month we had an issue with this' and give me a detailed story, but I'm trying to listen and type at the same time so I just write 'export problem' and move on. Later I can't remember the details."
+  },
+  {
+    "id": "msg-009",
+    "sender": "agent",
+    "content": "Has that ever caused a real problem — where missing those details led to a wrong decision or wasted time?"
+  },
+  {
+    "id": "msg-010",
+    "sender": "participant",
+    "content": "Yeah, actually. Six months ago we built a Slack integration because three customers said they 'would love that.' Turns out when we shipped it, none of them used it. When I went back to my notes, I realized they'd all said 'would' — future tense — but I treated it like validated demand. If I'd captured the actual words they used, I would've seen they were just being polite."
+  },
+  {
+    "id": "msg-011",
+    "sender": "agent",
+    "content": "That must have been frustrating. What did that cost you — in terms of time or money or opportunity cost?"
+  },
+  {
+    "id": "msg-012",
+    "sender": "participant",
+    "content": "Two engineers worked on it for about three weeks, so roughly $15k in loaded cost. Plus the opportunity cost of not building something users actually needed. It was a painful lesson."
+  }
+]
