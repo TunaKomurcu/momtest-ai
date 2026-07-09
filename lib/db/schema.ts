@@ -47,8 +47,10 @@ export const interviews = pgTable('interviews', {
 export const messages = pgTable('messages', {
   id:           uuid('id').primaryKey().defaultRandom(),
   interview_id: uuid('interview_id')
-    .notNull()
-    .references(() => interviews.id, { onDelete: 'cascade' }),
+    .notNull(),
+  // NOT: interview_id hem interviews.id hem de projects.id olabilir.
+  // Intake mesajları projects.id ile, mülakat mesajları interviews.id ile kaydedilir.
+  // FK constraint kasıtlı olarak kaldırılmıştır.
   sender:       text('sender', { enum: ['agent', 'participant'] }).notNull(),
   content:      text('content').notNull(),
   created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

@@ -125,9 +125,19 @@ function ProjectBody({
 
   function handleGenerateDone() {
     setScriptReady(true)
-    // DB'den güncel veri sayfayı yenileyince gelir;
-    // burada onStatusChange tetikleyerek sidebar'ı güncelliyoruz.
-    onStatusChange(project.id, 'brief_ready')
+    onStatusChange(project.id, 'interviewing')
+    // DB'den güncel brief + script'i çek
+    fetch(`/api/projects/${project.id}`)
+      .then((res) => res.json() as Promise<{ data: { research_brief: unknown; interview_script: unknown } | null; error: string | null }>)
+      .then((payload) => {
+        if (payload.data) {
+          setLiveBrief(payload.data.research_brief)
+          setLiveScript(payload.data.interview_script)
+        }
+      })
+      .catch(() => {
+        // Sessiz fail — sayfa yenilenince DB'den gelir
+      })
   }
 
   // ── interviewing / analyzed: sekmeli layout ───────────────────────────────
@@ -206,8 +216,8 @@ function ProjectBody({
                   </>
                 )}
 
-                {/* InterviewManager: brief hazırsa */}
-                {scriptReady && (
+                {/* InterviewManager: intake tamamlandıysa her zaman göster */}
+                {intakeComplete && (
                   <>
                     <Separator />
                     <InterviewManager

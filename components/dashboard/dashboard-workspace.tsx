@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { Toaster } from '@/components/ui/sonner'
 import { ProjectSidebar } from '@/components/dashboard/project-sidebar'
@@ -8,15 +8,30 @@ import { ProjectWorkspace } from '@/components/dashboard/project-workspace'
 import type { DashboardProject } from '@/components/dashboard/types'
 import type { ProjectStatus } from '@/lib/project-status'
 
+const STORAGE_KEY = 'momtest_selected_project'
+
 export function DashboardWorkspace({
   initialProjects,
 }: {
   initialProjects: DashboardProject[]
 }) {
   const [projects, setProjects] = useState<DashboardProject[]>(initialProjects)
-  const [selectedId, setSelectedId] = useState<string | null>(
-    initialProjects[0]?.id ?? null
-  )
+
+  // Sayfa yenilenince son seçili projeyi hatırla
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return initialProjects[0]?.id ?? null
+    const saved = localStorage.getItem(STORAGE_KEY)
+    // Kayıtlı ID hâlâ mevcut projeler arasında mı?
+    if (saved && initialProjects.some((p) => p.id === saved)) return saved
+    return initialProjects[0]?.id ?? null
+  })
+
+  // selectedId değişince localStorage'a kaydet
+  useEffect(() => {
+    if (selectedId) {
+      localStorage.setItem(STORAGE_KEY, selectedId)
+    }
+  }, [selectedId])
 
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === selectedId) ?? null,
@@ -31,7 +46,6 @@ export function DashboardWorkspace({
   const handleProjectDeleted = useCallback(
     (projectId: string) => {
       setProjects((prev) => prev.filter((p) => p.id !== projectId))
-      // Silinen proje seçiliyse bir sonraki projeye geç, yoksa null
       setSelectedId((prev) => {
         if (prev !== projectId) return prev
         const remaining = projects.filter((p) => p.id !== projectId)

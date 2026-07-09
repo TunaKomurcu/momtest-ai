@@ -51,13 +51,16 @@ Ask one question at a time. Stop when you can produce:
 - riskiest assumption
 - interview objective
 - evidence needed
-- forbidden questions
-- participant criteria
+
+Do NOT ask the PM about forbidden questions or participant criteria — you will derive these yourself from the conversation.
 
 Do not generate customer interview questions until the PM context is clear.
 
-IMPORTANT RULES:
-- Ask a maximum of 8 questions total. Do not exceed this limit.
+CRITICAL RULES — READ BEFORE RESPONDING:
+- You are in the MIDDLE of an ongoing conversation. The conversation history above is REAL. Do NOT restart, re-introduce yourself, or ask questions you have already asked.
+- Check the conversation history carefully. Count how many questions you have already asked. Continue from where the conversation left off.
+- Ask a maximum of 8 questions total across the ENTIRE conversation. Do not exceed this limit.
+- NEVER ask a question you have already asked in this conversation.
 - When you have gathered enough information to produce all the fields above, respond with a JSON block wrapped in <research_brief> tags followed by a brief confirmation message. Example:
 <research_brief>
 {
@@ -209,12 +212,19 @@ export async function POST(
     { sender: 'participant', content: userMessage },
   ])
 
+  const askedQuestions = history
+    .filter((m) => m.sender === 'agent')
+    .map((m, i) => `Q${i + 1}: ${m.content.slice(0, 120)}`)
+    .join('\n')
+
   const contextNote = `
-[Mevcut Durum]
-- Ürün fikri alındı mı: ${completionStatus.hasProductIdea ? 'Evet' : 'Hayır'}
-- Hedef segment belirlendi mi: ${completionStatus.hasTargetSegment ? 'Evet' : 'Hayır'}
-- En riskli varsayım tespit edildi mi: ${completionStatus.hasRiskiestAssumption ? 'Evet' : 'Hayır'}
-- Şimdiye kadar sorulmuş ajan mesajı sayısı: ${history.filter((m) => m.sender === 'agent').length}
+[CONVERSATION STATUS — DO NOT IGNORE]
+- Questions asked so far: ${history.filter((m) => m.sender === 'agent').length} out of 8 maximum
+- Product idea received: ${completionStatus.hasProductIdea ? 'YES' : 'NO'}
+- Target segment identified: ${completionStatus.hasTargetSegment ? 'YES' : 'NO'}
+- Riskiest assumption identified: ${completionStatus.hasRiskiestAssumption ? 'YES' : 'NO'}
+${askedQuestions ? `\nQuestions already asked (DO NOT repeat these):\n${askedQuestions}` : ''}
+- You must continue the conversation from question ${history.filter((m) => m.sender === 'agent').length + 1}. Do NOT restart.
 `
 
   const openaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -259,6 +269,11 @@ export async function POST(
     console.error('[Intake] Mesaj kaydı başarısız:', err)
   }
 
+  // Kullanıcıya döndürülecek reply'dan <research_brief> tag'ini temizle
+  const cleanReply = agentReply
+    .replace(/<research_brief>[\s\S]*?<\/research_brief>/g, '')
+    .trim()
+
   // --- Tamamlandıysa research_brief güncelle ---
   if (isComplete) {
     const brief = extractResearchBrief(agentReply)
@@ -289,5 +304,5 @@ export async function POST(
     }
   }
 
-  return NextResponse.json({ data: { reply: agentReply, isComplete }, error: null }, { status: 200 })
+  return NextResponse.json({ data: { reply: cleanReply, isComplete }, error: null }, { status: 200 })
 }
