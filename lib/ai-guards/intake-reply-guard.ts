@@ -123,6 +123,46 @@ export function hasMultipleQuestions(reply: string): boolean {
 // Katman 1 — applyIntakeGuard
 // ---------------------------------------------------------------------------
 
+// ── In-memory metrik sayacı ──────────────────────────────────────────────────
+// Geliştirme sürecinde flag oranını gözlemlemek için kullanılır.
+// Kalıcı depolama gerektirmez — process yeniden başladığında sıfırlanır.
+
+const LOG_INTERVAL = 10  // kaç çağrıda bir oranı logla
+
+const _metrics = {
+  totalCalls: 0,
+  flaggedCalls: 0,  // blocked + risky
+}
+
+/**
+ * Metrik sayacını sıfırlar.
+ * Test ortamında test izolasyonu için kullanılır — production'da çağrılmamalı.
+ */
+export function resetIntakeGuardMetrics(): void {
+  _metrics.totalCalls = 0
+  _metrics.flaggedCalls = 0
+}
+
+/**
+ * Mevcut metrik anlık görüntüsünü döndürür.
+ * Test assertion'larında kullanılır.
+ */
+export function getIntakeGuardMetrics(): { totalCalls: number; flaggedCalls: number } {
+  return { ..._metrics }
+}
+
+function recordMetric(verdict: 'clean' | 'blocked' | 'risky'): void {
+  _metrics.totalCalls++
+  if (verdict !== 'clean') _metrics.flaggedCalls++
+
+  if (_metrics.totalCalls % LOG_INTERVAL === 0) {
+    const pct = ((_metrics.flaggedCalls / _metrics.totalCalls) * 100).toFixed(1)
+    console.log(
+      `[Intake/guard] Flag rate: ${_metrics.flaggedCalls}/${_metrics.totalCalls} (%${pct})`
+    )
+  }
+}
+
 /**
  * PM intake sohbetinde AI'ın ürettiği cevabı kural tabanlı filtreden geçirir.
  * ~0ms — hiç LLM çağrısı yapmaz.
@@ -137,12 +177,14 @@ export function applyIntakeGuard(
   // BLOCKED kontrolü
   for (const { pattern, reason } of BLOCKED_PATTERNS) {
     if (pattern.test(reply)) {
+      recordMetric('blocked')
       return { verdict: 'blocked', reason }
     }
   }
 
   // Erken brief teslimi — blocked
   if (hasEarlyBriefDelivery(reply, agentMessageCount)) {
+    recordMetric('blocked')
     return {
       verdict: 'blocked',
       reason: `Erken <research_brief> teslimi — sadece ${agentMessageCount} agent mesajı gönderilmiş, minimum 3 gerekli`,
@@ -165,9 +207,11 @@ export function applyIntakeGuard(
   }
 
   if (flags.length > 0) {
+    recordMetric('risky')
     return { verdict: 'risky', flags, reason: flags[0] }
   }
 
+  recordMetric('clean')
   return { verdict: 'clean' }
 }
 

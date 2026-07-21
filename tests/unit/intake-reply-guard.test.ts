@@ -13,7 +13,7 @@
  * Checker testi MSW ile izole edilir.
  */
 
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach } from 'vitest'
 import { setupServer } from 'msw/node'
 import { http, HttpResponse } from 'msw'
 import {
@@ -21,6 +21,8 @@ import {
   hasMultipleQuestions,
   checkIntakeReplyIsolated,
   INTAKE_FALLBACK_MESSAGE,
+  resetIntakeGuardMetrics,
+  getIntakeGuardMetrics,
 } from '@/lib/ai-guards/intake-reply-guard'
 import OpenAI from 'openai'
 
@@ -435,6 +437,103 @@ describe('hasMultipleQuestions — semantik soru tespiti', () => {
     expect(result.flags).toEqual(
       expect.arrayContaining([expect.stringMatching(/birden fazla soru/i)])
     )
+  })
+})
+
+// ── Guard metrik sayacı ───────────────────────────────────────────────────────
+
+describe('IntakeGuard metrik sayacı', () => {
+  // Her testten önce sayacı sıfırla — diğer testlerden birikim etkilemesin
+  beforeEach(() => resetIntakeGuardMetrics())
+
+  it('başlangıçta totalCalls ve flaggedCalls sıfır', () => {
+    const m = getIntakeGuardMetrics()
+    expect(m.totalCalls).toBe(0)
+    expect(m.flaggedCalls).toBe(0)
+  })
+
+  it('clean çağrı totalCalls artırır, flaggedCalls artırmaz', () => {
+    applyIntakeGuard('Who exactly has this problem today?')
+    const m = getIntakeGuardMetrics()
+    expect(m.totalCalls).toBe(1)
+    expect(m.flaggedCalls).toBe(0)
+  })
+
+  it('blocked çağrı hem totalCalls hem flaggedCalls artırır', () => {
+    applyIntakeGuard("That's a great idea! Let's move forward.")
+    const m = getIntakeGuardMetrics()
+    expect(m.totalCalls).toBe(1)
+    expect(m.flaggedCalls).toBe(1)
+  })
+
+  it('risky çağrı hem totalCalls hem flaggedCalls artırır', () => {
+    applyIntakeGuard('I think your target segment might be freelancers.')
+    const m = getIntakeGuardMetrics()
+    expect(m.totalCalls).toBe(1)
+    expect(m.flaggedCalls).toBe(1)
+  })
+
+  it('karışık çağrılarda sayaçlar doğru birikir', () => {
+    // 3 clean, 2 flagged (1 blocked + 1 risky)
+    applyIntakeGuard('Who exactly has this problem today?')           // clean
+    applyIntakeGuard('What decision are you trying to make?')         // clean
+    applyIntakeGuard("That's a great idea!")                          // blocked
+    applyIntakeGuard('Which segment can you reach this week?')        // clean
+    applyIntakeGuard('I think this assumption is the riskiest one.')  // risky
+
+    const m = getIntakeGuardMetrics()
+    expect(m.totalCalls).toBe(5)
+    expect(m.flaggedCalls).toBe(2)
+  })
+
+  it('flag oranı hesabı doğru — %40 (2/5)', () => {
+    applyIntakeGuard('Who exactly has this problem today?')
+    applyIntakeGuard('Who exactly has this problem today?')
+    applyIntakeGuard('Who exactly has this problem today?')
+    applyIntakeGuard("That's a great idea!")                // flagged
+    applyIntakeGuard("That's a great idea!")                // flagged
+
+    const m = getIntakeGuardMetrics()
+    const pct = (m.flaggedCalls / m.totalCalls) * 100
+    expect(pct).toBeCloseTo(40, 0)
+  })
+
+  it('resetIntakeGuardMetrics sayaçları sıfırlar', () => {
+    applyIntakeGuard("That's a great idea!")
+    applyIntakeGuard("That's a great idea!")
+    expect(getIntakeGuardMetrics().totalCalls).toBe(2)
+
+    resetIntakeGuardMetrics()
+    const m = getIntakeGuardMetrics()
+    expect(m.totalCalls).toBe(0)
+    expect(m.flaggedCalls).toBe(0)
+  })
+
+  it('10 çağrıda loglama tetiklenir (console.log spy)', () => {
+    const logs: unknown[][] = []
+    const spy = ((...args: unknown[]) => { logs.push(args) }) as typeof console.log
+    const original = console.log
+    console.log = spy
+
+    try {
+      // 9 clean çağrı — log tetiklenmemeli
+      for (let i = 0; i < 9; i++) {
+        applyIntakeGuard('Who exactly has this problem today?')
+      }
+      const logsBefore = logs.filter(a => String(a[0]).includes('Flag rate')).length
+      expect(logsBefore).toBe(0)
+
+      // 10. çağrı — log tetiklenmeli
+      applyIntakeGuard('Who exactly has this problem today?')
+      const logsAfter = logs.filter(a => String(a[0]).includes('Flag rate')).length
+      expect(logsAfter).toBe(1)
+
+      // Log formatı doğru mu?
+      const flagRateLog = logs.find(a => String(a[0]).includes('Flag rate'))
+      expect(String(flagRateLog?.[0])).toMatch(/\[Intake\/guard\] Flag rate: \d+\/\d+ \(%[\d.]+\)/)
+    } finally {
+      console.log = original
+    }
   })
 })
 
