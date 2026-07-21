@@ -317,3 +317,32 @@ export interface StructuredAnalysis {
 export type ValidationResult<T> =
   | { ok: true; value: T }
   | { ok: false; issues: string[] }
+
+// ---------------------------------------------------------------------------
+// Reply Guards — Intake & Interview sohbet kalite kontrol
+// ---------------------------------------------------------------------------
+
+/**
+ * Kural filtresi çıktısı.
+ * clean → doğrudan geçer
+ * blocked → LLM kesin ihlal yaptı, retry veya fallback
+ * risky → belirsiz, isolated LLM check'e gönder
+ */
+export type GuardVerdict = 'clean' | 'blocked' | 'risky'
+
+export interface GuardResult {
+  verdict: GuardVerdict
+  /** blocked/risky durumunda tetiklenen kural açıklaması */
+  reason?: string
+  /** risky durumunda tetiklenen kural isimleri listesi */
+  flags?: string[]
+}
+
+/**
+ * Bağımsız context penceresinde çalışan LLM checker çıktısı.
+ * Conversation history sıfırlanmış, sadece kontrol edilecek mesaj ve kural seti gönderilir.
+ */
+export interface ReplyCheckResult {
+  verdict: 'pass' | 'fail'
+  reason: string
+}

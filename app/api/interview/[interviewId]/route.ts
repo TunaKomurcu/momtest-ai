@@ -6,6 +6,11 @@ import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
+import {
+  applyInterviewGuard,
+  checkInterviewReplyIsolated,
+  INTERVIEW_FALLBACK_MESSAGE,
+} from '@/lib/ai-guards/interview-reply-guard'
 import type {
   InterviewRequestBody,
   InterviewResponseData,
@@ -333,6 +338,75 @@ ${scriptContext}
       agentReply.trim().split(/\s+/).length >= 5 &&
       isClosingMessage(agentReply)) ||
     meaningfulRepliesBeforeThis >= 10
+
+  // ---------------------------------------------------------------------------
+  // Guard — Katman 1 (kural filtresi) + Katman 2 (isolated LLM check)
+  // Kapanış mesajları guard'a girmez: isComplete && isClosingMessage durumunda
+  // guard atlanır; temizlenmiş cevaplar zaten kurallara uygun.
+  // ---------------------------------------------------------------------------
+  if (!isClosingMessage(agentReply)) {
+    const guardResult = applyInterviewGuard(agentReply)
+
+    if (guardResult.verdict === 'blocked') {
+      console.warn('[Interview/guard] BLOCKED —', guardResult.reason, '— retry başlıyor')
+
+      // 1 retry
+      try {
+        const retryCompletion = await openai.chat.completions.create({
+          model: agentConfig.model?.name ?? 'gemini-flash-latest',
+          temperature: agentConfig.model?.temperature ?? 0.7,
+          max_tokens: agentConfig.model?.max_tokens ?? 512,
+          messages: llmMessages,
+        })
+        const retryReply = retryCompletion.choices[0]?.message?.content?.trim() ?? ''
+        const retryGuard = retryReply ? applyInterviewGuard(retryReply) : { verdict: 'blocked' as const }
+
+        if (retryReply && retryGuard.verdict !== 'blocked') {
+          agentReply = retryReply
+          console.warn('[Interview/guard] Retry başarılı.')
+        } else {
+          console.warn('[Interview/guard] Retry da blocked — fallback mesaj kullanılıyor')
+          agentReply = INTERVIEW_FALLBACK_MESSAGE
+        }
+      } catch (err) {
+        console.error('[Interview/guard] Retry LLM çağrısı başarısız:', err)
+        agentReply = INTERVIEW_FALLBACK_MESSAGE
+      }
+    } else if (guardResult.verdict === 'risky') {
+      console.warn('[Interview/guard] RISKY — flags:', guardResult.flags, '— isolated check başlıyor')
+
+      const checkResult = await checkInterviewReplyIsolated(
+        agentReply,
+        openai,
+        agentConfig.model?.name ?? 'gemini-flash-latest'
+      )
+
+      if (checkResult.verdict === 'fail') {
+        console.warn('[Interview/guard] Isolated check FAIL —', checkResult.reason, '— retry başlıyor')
+
+        try {
+          const retryCompletion = await openai.chat.completions.create({
+            model: agentConfig.model?.name ?? 'gemini-flash-latest',
+            temperature: agentConfig.model?.temperature ?? 0.7,
+            max_tokens: agentConfig.model?.max_tokens ?? 512,
+            messages: llmMessages,
+          })
+          const retryReply = retryCompletion.choices[0]?.message?.content?.trim() ?? ''
+          if (retryReply) {
+            agentReply = retryReply
+            console.warn('[Interview/guard] Retry sonrası yeni cevap kabul edildi.')
+          } else {
+            agentReply = INTERVIEW_FALLBACK_MESSAGE
+          }
+        } catch (err) {
+          console.error('[Interview/guard] Retry LLM çağrısı başarısız:', err)
+          agentReply = INTERVIEW_FALLBACK_MESSAGE
+        }
+      }
+      // pass → agentReply değişmez
+    }
+    // clean → agentReply değişmez
+  }
 
   // --- Mesajları kaydet ---
   try {
