@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# NemoClaw (Hermes Agent) — Minimal Bridge Config
+#
+# Kullanım:
+#   NVIDIA NIM API üzerinden → NVCF_API_KEY dolu olmalı, local_mode: false
+#   Lokal Docker üzerinden   → local_mode: true, docker-compose up ile ayağa kaldır
+# ─────────────────────────────────────────────────────────────────────────────
+
+agent:
+  name: "momtest-doc-validator"
+  description: >
+    Dokümantasyon format kurallarını (Research Brief ve Interview Script)
+    kontrol eden Hermes tabanlı ajan. Mevcut MomTest harness loop'unun
+    statik kural setini dinamik olarak değerlendirir.
+
+  # Skill dosyası — mevcut statik kurallar buraya yükleniyor
+  skill_file: "./skills/doc-format-rules.md"
+
+  # Yanıt formatı: her zaman JSON, harness loop'la uyumlu
+  response_format: "json"
+
+  # Maksimum token — brief-validator.ts ile tutarlı
+  max_tokens: 2000
+  temperature: 0.1   # kural kontrolü deterministik olmalı
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Backend seçimi
+# ─────────────────────────────────────────────────────────────────────────────
+
+backend:
+  # true  → localhost:8000 (Docker'da çalışan NemoClaw container)
+  # false → NVIDIA NIM API (https://integrate.api.nvidia.com/v1)
+  local_mode: false
+
+  local:
+    base_url: "http://localhost:8000/v1"
+    # NemoClaw Docker default endpoint
+    chat_path: "/agent/chat"
+
+  nim_api:
+    base_url: "https://integrate.api.nvidia.com/v1"
+    chat_path: "/chat/completions"
+    # Model — JSON output destekli, NIM'de aktif
+    model: "meta/llama-3.1-70b-instruct"
+    # API key → .env.local içinde NVCF_API_KEY olarak tutulur
+    api_key_env: "NVCF_API_KEY"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rate limiting (api-routes standartlarıyla uyumlu)
+# ─────────────────────────────────────────────────────────────────────────────
+
+rate_limit:
+  requests_per_minute: 20
+  retry_on_429: true
+  retry_delay_seconds: 3
+  max_retries: 2
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────────────────────
+
+logging:
+  level: "info"        # debug | info | warn | error
+  prefix: "[NemoBridge]"
+  log_raw_response: false   # true yapılırsa LLM çıktısı da loglanır (debug için)
