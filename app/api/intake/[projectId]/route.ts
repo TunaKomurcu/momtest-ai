@@ -10,6 +10,7 @@ import {
   applyIntakeGuard,
   checkIntakeReplyIsolated,
   INTAKE_FALLBACK_MESSAGE,
+  MAX_GUARD_RETRIES,
 } from '@/lib/ai-guards/intake-reply-guard'
 import type {
   IntakeRequestBody,
@@ -290,108 +291,116 @@ ${languageInstruction}
   // Guard — Katman 1 (kural filtresi) + Katman 2 (isolated LLM check)
   // research_brief tag'i içeren cevaplar guard'a girmez: tamamlanma mesajları
   // temiz kabul edilir. Guard yalnızca sohbet cevaplarını denetler.
+  //
+  // Retry zinciri — her iki dal (BLOCKED + RISKY) için ortak mantık:
+  //   1. Orijinal cevap kural filtresinden geçer.
+  //   2. blocked → doğrudan retry döngüsüne gir.
+  //   3. risky   → önce isolated check; fail ise retry döngüsüne gir.
+  //   4. Döngü her adımda hem kural filtresi HEM isolated check uygular.
+  //   5. MAX_GUARD_RETRIES kadar deneme sonrası hâlâ geçemezse fallback.
   // ---------------------------------------------------------------------------
   const agentMessageCount = history.filter(m => m.sender === 'agent').length
+  const modelName = agentConfig.model?.name ?? 'gemini-flash-latest'
 
   if (!/<research_brief>/i.test(agentReply)) {
-    const guardResult = applyIntakeGuard(agentReply, agentMessageCount)
+    const initialGuard = applyIntakeGuard(agentReply, agentMessageCount)
 
-    // ── TEŞHIS LOGLAMASI ─────────────────────────────────────────────────────
-    const questionCount = (agentReply.match(/\?/g) ?? []).length
-    const wordCount = agentReply.trim().split(/\s+/).length
-    console.log('[Intake/guard] TEŞHIS — orijinal cevap:', {
-      verdict: guardResult.verdict,
-      flags: 'flags' in guardResult ? guardResult.flags : [],
-      reason: 'reason' in guardResult ? guardResult.reason : undefined,
-      wordCount,
-      questionCount,
-      startsWithIThink: /^i\s+think\s+/im.test(agentReply),
+    // ── Teşhis logu — her istekte orijinal cevabı kayıt altına alır ──────────
+    console.log('[Intake/guard] orijinal cevap:', {
+      verdict:            initialGuard.verdict,
+      flags:              'flags' in initialGuard ? initialGuard.flags : [],
+      reason:             'reason' in initialGuard ? initialGuard.reason : undefined,
+      wordCount:          agentReply.trim().split(/\s+/).length,
+      questionCount:      (agentReply.match(/\?/g) ?? []).length,
+      startsWithIThink:   /^i\s+think\s+/im.test(agentReply),
       startsWithIBelieve: /^i\s+believe\s+/im.test(agentReply),
-      hasSanırım: /sanırım\s+/i.test(agentReply),
-      hasBence: /bence\s+/i.test(agentReply),
-      hasRiskyAssumption: /this\s+is\s+a?\s*(risky|strong)\s+assumption/i.test(agentReply),
-      hasStartupsFail: /most\s+startups?\s+fail/i.test(agentReply),
-      fullText: agentReply,
+      hasSanırım:         /sanırım\s+/i.test(agentReply),
+      hasBence:           /bence\s+/i.test(agentReply),
+      fullText:           agentReply,
     })
     // ─────────────────────────────────────────────────────────────────────────
 
-    if (guardResult.verdict === 'blocked') {
-      console.warn('[Intake/guard] BLOCKED —', guardResult.reason, '— retry başlıyor')
+    // Orijinal cevabın retry döngüsüne girmesi gerekip gerekmediğini belirle
+    let needsRetry = false
 
-      // 1 retry
-      try {
-        const retryCompletion = await openai.chat.completions.create({
-          model: agentConfig.model?.name ?? 'gemini-flash-latest',
-          temperature: agentConfig.model?.temperature ?? 0.4,
-          max_tokens: agentConfig.model?.max_tokens ?? 512,
-          messages: openaiMessages,
-        })
-        const retryReply = retryCompletion.choices[0]?.message?.content?.trim() ?? ''
-        const retryGuard = retryReply ? applyIntakeGuard(retryReply, agentMessageCount) : { verdict: 'blocked' as const }
-
-        console.log('[Intake/guard] BLOCKED retry sonucu:', {
-          retryVerdict: retryGuard.verdict,
-          retryFlags: 'flags' in retryGuard ? retryGuard.flags : [],
-          retryWordCount: retryReply.trim().split(/\s+/).length,
-          retryQuestionCount: (retryReply.match(/\?/g) ?? []).length,
-          retryFullText: retryReply,
-        })
-
-        if (retryReply && retryGuard.verdict !== 'blocked') {
-          agentReply = retryReply
-          console.warn('[Intake/guard] Retry başarılı.')
-        } else {
-          console.warn('[Intake/guard] Retry da blocked — fallback mesaj kullanılıyor')
-          agentReply = INTAKE_FALLBACK_MESSAGE
-        }
-      } catch (err) {
-        console.error('[Intake/guard] Retry LLM çağrısı başarısız:', err)
-        agentReply = INTAKE_FALLBACK_MESSAGE
+    if (initialGuard.verdict === 'blocked') {
+      console.warn('[Intake/guard] BLOCKED —', initialGuard.reason, '— retry döngüsü başlıyor')
+      needsRetry = true
+    } else if (initialGuard.verdict === 'risky') {
+      console.warn('[Intake/guard] RISKY — flags:', initialGuard.flags, '— isolated check başlıyor')
+      const initialCheck = await checkIntakeReplyIsolated(agentReply, openai, modelName)
+      console.log('[Intake/guard] isolated check sonucu (orijinal):', initialCheck)
+      if (initialCheck.verdict === 'fail') {
+        console.warn('[Intake/guard] Isolated check FAIL —', initialCheck.reason, '— retry döngüsü başlıyor')
+        needsRetry = true
       }
-    } else if (guardResult.verdict === 'risky') {
-      console.warn('[Intake/guard] RISKY — flags:', guardResult.flags, '— isolated check başlıyor')
+      // isolated check pass → needsRetry false, agentReply değişmez
+    }
+    // clean → needsRetry false, agentReply değişmez
 
-      const checkResult = await checkIntakeReplyIsolated(
-        agentReply,
-        openai,
-        agentConfig.model?.name ?? 'gemini-flash-latest'
-      )
+    // ── Retry döngüsü — MAX_GUARD_RETRIES kez dene, her adımda tam doğrula ──
+    if (needsRetry) {
+      let accepted = false
 
-      if (checkResult.verdict === 'fail') {
-        console.warn('[Intake/guard] Isolated check FAIL —', checkResult.reason, '— retry başlıyor')
+      for (let attempt = 1; attempt <= MAX_GUARD_RETRIES; attempt++) {
+        console.warn(`[Intake/guard] Retry denemesi ${attempt}/${MAX_GUARD_RETRIES}`)
 
+        let candidateReply = ''
         try {
           const retryCompletion = await openai.chat.completions.create({
-            model: agentConfig.model?.name ?? 'gemini-flash-latest',
+            model:      modelName,
             temperature: agentConfig.model?.temperature ?? 0.4,
-            max_tokens: agentConfig.model?.max_tokens ?? 512,
-            messages: openaiMessages,
+            max_tokens:  agentConfig.model?.max_tokens ?? 512,
+            messages:    openaiMessages,
           })
-          const retryReply = retryCompletion.choices[0]?.message?.content?.trim() ?? ''
-
-          // TEŞHIS: retry çıktısını guard'dan tekrar geçir ve sonucu logla
-          const retryGuardResult = retryReply ? applyIntakeGuard(retryReply, agentMessageCount) : null
-          console.log('[Intake/guard] RISKY retry sonucu:', {
-            retryVerdict: retryGuardResult?.verdict ?? 'empty',
-            retryFlags: retryGuardResult && 'flags' in retryGuardResult ? retryGuardResult.flags : [],
-            retryWordCount: retryReply.trim().split(/\s+/).length,
-            retryQuestionCount: (retryReply.match(/\?/g) ?? []).length,
-            retryFullText: retryReply,
-          })
-
-          if (retryReply) {
-            agentReply = retryReply
-            console.warn('[Intake/guard] Retry sonrası yeni cevap kabul edildi (guard sonucu:', retryGuardResult?.verdict, ')')
-          } else {
-            agentReply = INTAKE_FALLBACK_MESSAGE
-          }        } catch (err) {
-          console.error('[Intake/guard] Retry LLM çağrısı başarısız:', err)
-          agentReply = INTAKE_FALLBACK_MESSAGE
+          candidateReply = retryCompletion.choices[0]?.message?.content?.trim() ?? ''
+        } catch (err) {
+          console.error(`[Intake/guard] Retry ${attempt} LLM çağrısı başarısız:`, err)
+          break  // LLM erişilemez — döngüyü kır, fallback'e düş
         }
+
+        if (!candidateReply) {
+          console.warn(`[Intake/guard] Retry ${attempt} boş cevap döndürdü`)
+          continue
+        }
+
+        // Adım 1: kural filtresi
+        const retryGuard = applyIntakeGuard(candidateReply, agentMessageCount)
+        console.log(`[Intake/guard] Retry ${attempt} kural filtresi:`, {
+          verdict:       retryGuard.verdict,
+          flags:         'flags' in retryGuard ? retryGuard.flags : [],
+          wordCount:     candidateReply.trim().split(/\s+/).length,
+          questionCount: (candidateReply.match(/\?/g) ?? []).length,
+          fullText:      candidateReply,
+        })
+
+        if (retryGuard.verdict === 'blocked') {
+          console.warn(`[Intake/guard] Retry ${attempt} BLOCKED — bir sonraki denemeye geçiliyor`)
+          continue
+        }
+
+        // Adım 2: isolated LLM check — risky ve clean için de çalışır
+        // (risky cevaplar isolated check'ten geçmeden kabul edilmez)
+        const retryCheck = await checkIntakeReplyIsolated(candidateReply, openai, modelName)
+        console.log(`[Intake/guard] Retry ${attempt} isolated check:`, retryCheck)
+
+        if (retryCheck.verdict === 'pass') {
+          agentReply = candidateReply
+          accepted = true
+          console.log(`[Intake/guard] Retry ${attempt} KABUL EDİLDİ (kural: ${retryGuard.verdict}, check: pass)`)
+          break
+        }
+
+        console.warn(`[Intake/guard] Retry ${attempt} isolated check FAIL — ${retryCheck.reason}`)
       }
-      // pass → agentReply değişmez
+
+      if (!accepted) {
+        console.warn(
+          `[Intake/guard] ${MAX_GUARD_RETRIES} retry sonrası kabul edilebilir cevap üretilemedi — fallback kullanılıyor`
+        )
+        agentReply = INTAKE_FALLBACK_MESSAGE
+      }
     }
-    // clean → agentReply değişmez
   }
 
   // Kullanıcıya döndürülecek reply'dan <research_brief> tag'ini temizle

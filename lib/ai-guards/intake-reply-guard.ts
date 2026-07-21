@@ -2,7 +2,18 @@ import OpenAI from 'openai'
 import type { GuardResult, ReplyCheckResult } from '@/types/index'
 
 // ---------------------------------------------------------------------------
-// Sabitler — Kural setleri
+// Sabitler
+// ---------------------------------------------------------------------------
+
+/**
+ * Guard retry döngüsünün maksimum deneme sayısı.
+ * İlk LLM çağrısı bu limite dahil değil — sadece retry sayısını sınırlar.
+ * Sonsuz döngü riskini engeller.
+ */
+export const MAX_GUARD_RETRIES = 2
+
+// ---------------------------------------------------------------------------
+// Kural setleri
 // ---------------------------------------------------------------------------
 
 /**
@@ -44,7 +55,7 @@ const RISKY_PATTERNS: Array<{ pattern: RegExp; flag: string }> = [
 // Yardımcı kontroller
 // ---------------------------------------------------------------------------
 
-/** Erken <research_brief> teslimi — agent mesaj sayısı 3'ten azsa risky */
+/** Erken <research_brief> teslimi — agent mesaj sayısı 3'ten azsa blocked */
 function hasEarlyBriefDelivery(reply: string, agentMessageCount: number): boolean {
   return /<research_brief>/i.test(reply) && agentMessageCount < 3
 }
