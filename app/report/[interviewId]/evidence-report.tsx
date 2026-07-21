@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useRef, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -203,6 +203,24 @@ export function EvidenceReport({
 }) {
   const [activeTab, setActiveTab] = useState<SignalType>('strong')
   const [transcriptFilter, setTranscriptFilter] = useState<FilterType>('all')
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
+
+  // message_id → DOM element ref map
+  const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+
+  const scrollToMessage = useCallback((messageId: string) => {
+    if (!messageId) return
+    // Transcript filtresini 'all' yaparak mesajın DOM'da var olmasını garantile
+    setTranscriptFilter('all')
+    // Kısa bir tick sonra scroll — filter state güncellenmiş olsun
+    setTimeout(() => {
+      const el = messageRefs.current.get(messageId)
+      if (!el) return
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setHighlightedMessageId(messageId)
+      setTimeout(() => setHighlightedMessageId(null), 2000)
+    }, 50)
+  }, [])
 
   // analysis_json varsa doğrudan oku, yoksa markdown fallback
   const analysisJson = useMemo(
@@ -351,7 +369,6 @@ export function EvidenceReport({
           ) : (
             <div className="flex flex-col gap-2">
               {signalScore[activeTab].map((entry, i) => {
-                // Her kategori kendi açıklama alanına sahip
                 const explanation =
                   activeTab === 'strong'
                     ? (entry as StrongSignalEntry).whyItMatters
@@ -361,13 +378,17 @@ export function EvidenceReport({
                     ? (entry as WeakSignalEntry).whyItIsWeak
                     : (entry as NegativeSignalEntry).whyItIsNegative
 
+                const hasLink = Boolean(entry.message_id)
+
                 return (
                   <div
                     key={i}
+                    onClick={() => hasLink && scrollToMessage(entry.message_id)}
                     className={cn(
-                      'rounded-lg border p-3',
+                      'rounded-lg border p-3 transition-colors',
                       SIGNAL_META[activeTab].bg,
-                      SIGNAL_META[activeTab].border
+                      SIGNAL_META[activeTab].border,
+                      hasLink && 'cursor-pointer hover:brightness-110'
                     )}
                   >
                     <p
@@ -381,6 +402,11 @@ export function EvidenceReport({
                     {explanation && (
                       <p className="text-muted-foreground mt-1.5 text-xs leading-relaxed">
                         {explanation}
+                      </p>
+                    )}
+                    {hasLink && (
+                      <p className="text-muted-foreground/60 mt-1.5 text-[10px]">
+                        Transkripte git ↓
                       </p>
                     )}
                   </div>
@@ -450,13 +476,19 @@ export function EvidenceReport({
               const isAgent = message.sender === 'agent'
               const signalType = signalMap.get(message.id)
               const signalMeta = signalType ? SIGNAL_META[signalType] : null
+              const isHighlighted = highlightedMessageId === message.id
 
               return (
                 <div
                   key={message.id}
+                  ref={(el) => {
+                    if (el) messageRefs.current.set(message.id, el)
+                    else messageRefs.current.delete(message.id)
+                  }}
                   className={cn(
-                    'flex items-start gap-2',
-                    isAgent ? 'flex-row' : 'flex-row-reverse'
+                    'flex items-start gap-2 rounded-lg p-1 transition-colors duration-500',
+                    isAgent ? 'flex-row' : 'flex-row-reverse',
+                    isHighlighted && 'bg-primary/10'
                   )}
                 >
                   <span

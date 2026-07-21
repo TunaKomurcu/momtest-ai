@@ -6,12 +6,6 @@ import { cn } from '@/lib/utils'
 
 type SignalLevel = 'strong' | 'medium' | 'weak' | 'negative'
 
-interface Dimension {
-  key: string
-  label: string
-  value: SignalLevel | undefined
-}
-
 interface SignalDimensionsGridProps {
   problemEvidence: SignalLevel | undefined
   urgency: SignalLevel | undefined
@@ -60,10 +54,10 @@ const LEVEL_META: Record<
 }
 
 const DIMENSIONS: Array<{ key: keyof SignalDimensionsGridProps; label: string }> = [
-  { key: 'problemEvidence',   label: 'Problem Kanıtı'    },
-  { key: 'urgency',           label: 'Aciliyet'          },
-  { key: 'workaroundEvidence', label: 'Geçici Çözüm'    },
-  { key: 'budgetOrCommitment', label: 'Bütçe / Bağlılık' },
+  { key: 'problemEvidence',    label: 'Problem Kanıtı'    },
+  { key: 'urgency',            label: 'Aciliyet'          },
+  { key: 'workaroundEvidence', label: 'Geçici Çözüm'      },
+  { key: 'budgetOrCommitment', label: 'Bütçe / Bağlılık'  },
 ]
 
 // ── Component ────────────────────────────────────────────────────────────────
