@@ -92,6 +92,15 @@ function loadOpenAIConfig(): Partial<OpenAIAgentConfig> {
   }
 }
 
+/**
+ * Kullanıcının mesajından dil tespiti yapar.
+ * Türkçe karakter veya yaygın Türkçe kelime içeriyorsa 'tr', aksi halde 'en' döner.
+ */
+function detectLanguage(text: string): 'tr' | 'en' {
+  const turkishPattern = /[çğıöşüÇĞİÖŞÜ]|(\b(ve|bir|bu|ile|için|var|ama|nasıl|neden|ne|kim|hangi|kaç|mı|mi|mu|mü|da|de|ta|te)\b)/i
+  return turkishPattern.test(text) ? 'tr' : 'en'
+}
+
 function extractResearchBrief(reply: string): ResearchBrief | null {
   const match = reply.match(/<research_brief>([\s\S]*?)<\/research_brief>/)
   if (!match) return null
@@ -212,6 +221,16 @@ export async function POST(
     { sender: 'participant', content: userMessage },
   ])
 
+  // Dil tespiti — mevcut mesaj + önceki kullanıcı mesajlarından
+  const recentUserText = [
+    ...history.filter(m => m.sender === 'participant').slice(-3).map(m => m.content),
+    userMessage,
+  ].join(' ')
+  const detectedLang = detectLanguage(recentUserText)
+  const languageInstruction = detectedLang === 'tr'
+    ? 'IMPORTANT: The user is writing in Turkish. You MUST respond entirely in Turkish. Do not use any English sentences.'
+    : 'IMPORTANT: The user is writing in English. You MUST respond entirely in English. Do not use any Turkish sentences.'
+
   const askedQuestions = history
     .filter((m) => m.sender === 'agent')
     .map((m, i) => `Q${i + 1}: ${m.content.slice(0, 120)}`)
@@ -225,6 +244,9 @@ export async function POST(
 - Riskiest assumption identified: ${completionStatus.hasRiskiestAssumption ? 'YES' : 'NO'}
 ${askedQuestions ? `\nQuestions already asked (DO NOT repeat these):\n${askedQuestions}` : ''}
 - You must continue the conversation from question ${history.filter((m) => m.sender === 'agent').length + 1}. Do NOT restart.
+
+[LANGUAGE]
+${languageInstruction}
 `
 
   const openaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -259,20 +281,21 @@ ${askedQuestions ? `\nQuestions already asked (DO NOT repeat these):\n${askedQue
     agentReply
   )
 
-  // --- Mesajları kaydet ---
+  // Kullanıcıya döndürülecek reply'dan <research_brief> tag'ini temizle
+  // DB'ye de temiz hali yazılır — JSON bloğu sohbette görünmez
+  const cleanReply = agentReply
+    .replace(/<research_brief>[\s\S]*?<\/research_brief>/g, '')
+    .trim()
+
+  // --- Mesajları kaydet — cleanReply kullanılır ---
   try {
     await db.insert(messages).values([
       { interview_id: projectId, sender: 'participant', content: userMessage },
-      { interview_id: projectId, sender: 'agent', content: agentReply },
+      { interview_id: projectId, sender: 'agent',       content: cleanReply },
     ])
   } catch (err) {
     console.error('[Intake] Mesaj kaydı başarısız:', err)
   }
-
-  // Kullanıcıya döndürülecek reply'dan <research_brief> tag'ini temizle
-  const cleanReply = agentReply
-    .replace(/<research_brief>[\s\S]*?<\/research_brief>/g, '')
-    .trim()
 
   // --- Tamamlandıysa research_brief güncelle ---
   if (isComplete) {
