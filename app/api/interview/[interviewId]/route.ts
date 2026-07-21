@@ -11,6 +11,10 @@ import {
   checkInterviewReplyIsolated,
   INTERVIEW_FALLBACK_MESSAGE,
 } from '@/lib/ai-guards/interview-reply-guard'
+import {
+  detectInjectionAttempt,
+  buildNeutralWrapper,
+} from '@/lib/ai-guards/interview-injection-guard'
 import type {
   InterviewRequestBody,
   InterviewResponseData,
@@ -214,8 +218,23 @@ export async function POST(
   const userMessage = body.message.trim()
   const participantName = body.participant_name.trim()
 
-  // --- Interview kaydını çek ---
-  let interview: { id: string; project_id: string; participant_name: string; status: string } | undefined
+  // ---------------------------------------------------------------------------
+  // Injection guard — LLM çağrısından önce, deterministik
+  // ---------------------------------------------------------------------------
+  let messageForLLM = userMessage
+  let injectionDetected = false
+
+  const injectionResult = detectInjectionAttempt(userMessage)
+  if (injectionResult.suspicious) {
+    injectionDetected = true
+    console.warn(
+      `[Interview/guard] Injection attempt flagged — patterns: ${JSON.stringify(injectionResult.matchedPatterns)} — ` +
+      `message (truncated): "${userMessage.slice(0, 80)}${userMessage.length > 80 ? '...' : ''}"`
+    )
+    // Mesajı reddetmiyoruz — nötr zarf ile LLM'e gönder
+    messageForLLM = buildNeutralWrapper(userMessage)
+  }
+  let interview: { id: string; project_id: string; participant_name: string; status: string; injection_count: number | null } | undefined
   try {
     const rows = await db
       .select({
@@ -223,6 +242,7 @@ export async function POST(
         project_id: interviews.project_id,
         participant_name: interviews.participant_name,
         status: interviews.status,
+        injection_count: interviews.injection_count,
       })
       .from(interviews)
       .where(eq(interviews.id, interviewId))
@@ -312,7 +332,7 @@ ${scriptContext}
       role: m.sender === 'agent' ? 'assistant' : 'user',
       content: m.content,
     })),
-    { role: 'user', content: userMessage },
+    { role: 'user', content: messageForLLM },
   ]
 
   let agentReply: string
@@ -416,6 +436,20 @@ ${scriptContext}
     ])
   } catch (err) {
     console.error('[Interview] Mesaj kaydı başarısız:', err)
+  }
+
+  // --- Injection tespit edildiyse sayacı artır (fire-and-forget) ---
+  if (injectionDetected) {
+    void db
+      .update(interviews)
+      .set({
+        injection_count: (interview.injection_count ?? 0) + 1,
+        updated_at: new Date(),
+      })
+      .where(eq(interviews.id, interviewId))
+      .catch((err: unknown) => {
+        console.error('[Interview/guard] injection_count güncellemesi başarısız:', err)
+      })
   }
 
   // --- Tamamlandıysa status güncelle + webhook ---

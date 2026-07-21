@@ -3,6 +3,7 @@ import {
   uuid,
   text,
   jsonb,
+  integer,
   timestamp,
 } from 'drizzle-orm/pg-core'
 
@@ -38,6 +39,7 @@ export const interviews = pgTable('interviews', {
   evidence_report:  text('evidence_report'),
   analysis_json:    jsonb('analysis_json'),
   analyzed_at:      timestamp('analyzed_at', { withTimezone: true }),
+  injection_count:  integer('injection_count').default(0),
   created_at:       timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:       timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
