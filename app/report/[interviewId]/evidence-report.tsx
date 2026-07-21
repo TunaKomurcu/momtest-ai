@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Bot, User } from 'lucide-react'
+import { ArrowLeft, AlertTriangle, Bot, User } from 'lucide-react'
 import { SignalDimensionsGrid } from './signal-dimensions-grid'
 import { useIsMobile } from '@/hooks/use-mobile'
 import type {
@@ -233,6 +233,22 @@ export function EvidenceReport({
             <p className="text-muted-foreground mx-auto mt-3 max-w-2xl text-sm leading-relaxed">{summary}</p>
           )}
         </div>
+
+        {/* Grounding uyarı rozeti — sadece doğrulanamayan alıntılar varsa görünür */}
+        {analysisJson?.groundingWarnings && analysisJson.groundingWarnings.length > 0 && (
+          <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-400" />
+            <div className="flex flex-col gap-0.5">
+              <p className="text-sm font-medium text-amber-400">
+                Bazı alıntılar otomatik doğrulanamadı
+              </p>
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                {analysisJson.groundingWarnings.length} alıntı transkriptte birebir bulunamadı.
+                Raporu transkriptle karşılaştırarak kontrol edin.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Sinyal Boyutları + Sayaç Kartları
             Mobil: üst üste (1 sütun)

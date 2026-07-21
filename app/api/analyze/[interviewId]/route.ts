@@ -8,6 +8,7 @@ import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
 import { callWithJsonRetry, parseAndClean } from '@/lib/ai-guards/json-retry'
 import { validateStructuredAnalysis } from '@/lib/ai-guards/analysis-validator'
+import { verifyGrounding, issuesToWarnings } from '@/lib/ai-guards/grounding-verifier'
 import type {
   ApiResponse,
   OpenAIAgentConfig,
@@ -493,6 +494,79 @@ export async function POST(
       { data: null, error: 'Analiz sonucu işlenemedi. Lütfen tekrar deneyin.' },
       { status: 500 }
     )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Grounding verification — alıntıları transkripte karşı doğrula (deterministik)
+  // ---------------------------------------------------------------------------
+
+  // messageRows zaten mevcut — ek DB sorgusu yok
+  const groundingMessages = messageRows.map(m => ({ id: m.id, content: m.content }))
+
+  let groundingIssues = verifyGrounding(analysis, groundingMessages)
+
+  if (groundingIssues.length > 0) {
+    console.warn(
+      `[Analyze/grounding] ${groundingIssues.length} sorun bulundu, LLM retry başlıyor`
+    )
+
+    // LLM'e grounding hatasını açıklayan bir mesajla yeniden üretim yaptır
+    const ungroundedQuotes = groundingIssues
+      .map(i => `- "${i.quote.slice(0, 80)}" (${i.reason})`)
+      .join('\n')
+
+    const groundingRetryMessages: Parameters<typeof callWithJsonRetry>[1]['messages'] = [
+      { role: 'system', content: EVIDENCE_ANALYST_SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content: `Participant name: ${interview.participant_name}\n\nInterview transcript:\n${transcript}`,
+      },
+      {
+        role: 'assistant',
+        content: JSON.stringify(analysis),
+      },
+      {
+        role: 'user',
+        content: `The following quotes could NOT be found in the transcript above. Please revise the analysis and use ONLY quotes that appear verbatim or near-verbatim in the transcript. Do not invent or paraphrase beyond recognition.\n\nProblematic quotes:\n${ungroundedQuotes}\n\nReturn the complete corrected JSON analysis.`,
+      },
+    ]
+
+    const retriedAnalysis = await callWithJsonRetry<typeof analysis>(
+      openai,
+      {
+        model:       agentConfig.model?.name ?? 'gemini-flash-latest',
+        temperature: 0.1,
+        max_tokens:  agentConfig.model?.max_tokens ?? 2048,
+        stream:      false,
+        messages:    groundingRetryMessages,
+      },
+      validateStructuredAnalysis,
+      '[Analyze/grounding]'
+    )
+
+    if (retriedAnalysis) {
+      // Retry sonrası tekrar doğrula
+      const retriedIssues = verifyGrounding(retriedAnalysis, groundingMessages)
+
+      if (retriedIssues.length < groundingIssues.length) {
+        console.log(
+          `[Analyze/grounding] Retry gelişme sağladı: ${groundingIssues.length} → ${retriedIssues.length} sorun`
+        )
+      }
+
+      analysis = retriedAnalysis
+      groundingIssues = retriedIssues
+    } else {
+      console.warn('[Analyze/grounding] Retry başarısız — orijinal analiz kullanılıyor')
+    }
+
+    // Kalan sorunları groundingWarnings olarak işaretle — bloklama yok, şeffaflık var
+    if (groundingIssues.length > 0) {
+      analysis = { ...analysis, groundingWarnings: issuesToWarnings(groundingIssues) }
+      console.warn(
+        `[Analyze/grounding] ${groundingIssues.length} sorun hâlâ mevcut, groundingWarnings eklendi`
+      )
+    }
   }
 
   // --- JSONB yapılarını türet ---

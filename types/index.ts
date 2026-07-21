@@ -305,6 +305,13 @@ export interface StructuredAnalysis {
   negativeEvidence: Array<{ quote: string; message_id: string; whyItIsNegative: string }>
   openQuestions: string[]
   recommendedNextStep: string
+  /**
+   * Grounding doğrulama uyarıları.
+   * LLM alıntıları transkriptte bulunamadığında doldurulur.
+   * Analiz kaydedilir ama bu alan doluysa kullanıcı uyarılır.
+   * LLM tarafından üretilmez — verifyGrounding() tarafından sonradan eklenir.
+   */
+  groundingWarnings?: string[]
 }
 // ---------------------------------------------------------------------------
 // AI Guards — Loop & Harness validation
