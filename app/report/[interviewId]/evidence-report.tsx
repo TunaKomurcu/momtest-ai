@@ -6,25 +6,30 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, Bot, User } from 'lucide-react'
+import type {
+  StrongSignalEntry,
+  MediumSignalEntry,
+  WeakSignalEntry,
+  NegativeSignalEntry,
+  StructuredAnalysis,
+} from '@/types/index'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface SignalEntry {
-  quote: string
-  message_id: string
-}
-
 interface SignalScore {
-  strong: SignalEntry[]
-  medium: SignalEntry[]
-  weak: SignalEntry[]
-  negative: SignalEntry[]
+  strong: StrongSignalEntry[]
+  medium: MediumSignalEntry[]
+  weak: WeakSignalEntry[]
+  negative: NegativeSignalEntry[]
 }
 
 interface InterviewData {
   participant_name: string
+  participant_role?: string
   signal_score: unknown
   evidence_report: string
+  /** Yeni kayıtlarda dolu, eski kayıtlarda null — fallback olarak evidence_report kullanılır */
+  analysis_json: unknown | null
 }
 
 interface MessageData {
@@ -38,41 +43,76 @@ type FilterType = 'all' | SignalType
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function parseDecision(report: string): string {
+/** analysis_json'dan StructuredAnalysis parse eder. null veya geçersizse null döner. */
+function parseAnalysisJson(raw: unknown): StructuredAnalysis | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const a = raw as Record<string, unknown>
+  if (typeof a.decision !== 'string' || typeof a.summary !== 'string') return null
+  return raw as StructuredAnalysis
+}
+
+// ── Regex fallback — sadece analysis_json null olan eski kayıtlar için ──────
+
+function parseDecisionFallback(report: string): string {
   const match = report.match(/## Decision\n([^\n#]+)/)
   return match?.[1]?.trim() ?? ''
 }
 
-function parseSummary(report: string): string {
+function parseSummaryFallback(report: string): string {
   const match = report.match(/## Summary\n([\s\S]+?)(?=\n##)/)
   return match?.[1]?.trim() ?? ''
 }
 
-function parseNextStep(report: string): string {
+function parseNextStepFallback(report: string): string {
   const match = report.match(/## Recommended next step\n([\s\S]+?)$/)
   return match?.[1]?.trim() ?? ''
 }
+
+// ── signal_score JSONB parse ─────────────────────────────────────────────────
 
 function parseSignalScore(raw: unknown): SignalScore {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { strong: [], medium: [], weak: [], negative: [] }
   }
   const s = raw as Record<string, unknown>
-  const toEntries = (arr: unknown): SignalEntry[] =>
+
+  const toStrong = (arr: unknown): StrongSignalEntry[] =>
     Array.isArray(arr)
-      ? arr.filter(
-          (e): e is SignalEntry =>
-            typeof e === 'object' &&
-            e !== null &&
-            'quote' in e &&
-            'message_id' in e
-        )
+      ? (arr.filter(
+          (e): e is StrongSignalEntry =>
+            typeof e === 'object' && e !== null && 'quote' in e && 'message_id' in e
+        ) as StrongSignalEntry[])
       : []
+
+  const toMedium = (arr: unknown): MediumSignalEntry[] =>
+    Array.isArray(arr)
+      ? (arr.filter(
+          (e): e is MediumSignalEntry =>
+            typeof e === 'object' && e !== null && 'quote' in e && 'message_id' in e
+        ) as MediumSignalEntry[])
+      : []
+
+  const toWeak = (arr: unknown): WeakSignalEntry[] =>
+    Array.isArray(arr)
+      ? (arr.filter(
+          (e): e is WeakSignalEntry =>
+            typeof e === 'object' && e !== null && 'quote' in e && 'message_id' in e
+        ) as WeakSignalEntry[])
+      : []
+
+  const toNegative = (arr: unknown): NegativeSignalEntry[] =>
+    Array.isArray(arr)
+      ? (arr.filter(
+          (e): e is NegativeSignalEntry =>
+            typeof e === 'object' && e !== null && 'quote' in e && 'message_id' in e
+        ) as NegativeSignalEntry[])
+      : []
+
   return {
-    strong: toEntries(s.strong),
-    medium: toEntries(s.medium),
-    weak: toEntries(s.weak),
-    negative: toEntries(s.negative),
+    strong: toStrong(s.strong),
+    medium: toMedium(s.medium),
+    weak: toWeak(s.weak),
+    negative: toNegative(s.negative),
   }
 }
 
@@ -163,14 +203,31 @@ export function EvidenceReport({
   const [activeTab, setActiveTab] = useState<SignalType>('strong')
   const [transcriptFilter, setTranscriptFilter] = useState<FilterType>('all')
 
+  // analysis_json varsa doğrudan oku, yoksa markdown fallback
+  const analysisJson = useMemo(
+    () => parseAnalysisJson(interview.analysis_json),
+    [interview.analysis_json]
+  )
+
+  const decision = analysisJson
+    ? analysisJson.decision
+    : parseDecisionFallback(interview.evidence_report)
+
+  const summary = analysisJson
+    ? analysisJson.summary
+    : parseSummaryFallback(interview.evidence_report)
+
+  const nextStep = analysisJson
+    ? analysisJson.recommendedNextStep
+    : parseNextStepFallback(interview.evidence_report)
+
+  const openQuestions: string[] = analysisJson?.openQuestions ?? []
+
   const signalScore = useMemo(
     () => parseSignalScore(interview.signal_score),
     [interview.signal_score]
   )
 
-  const decision = parseDecision(interview.evidence_report)
-  const summary = parseSummary(interview.evidence_report)
-  const nextStep = parseNextStep(interview.evidence_report)
   const decisionMeta =
     DECISION_META[decision.toLowerCase()] ?? DECISION_META['continue discovery']
 
@@ -206,6 +263,9 @@ export function EvidenceReport({
           <span className="text-sm font-semibold">Kanıt Raporu</span>
           <span className="text-muted-foreground text-xs">
             {interview.participant_name}
+            {interview.participant_role && (
+              <span className="ml-1 opacity-70">· {interview.participant_role}</span>
+            )}
           </span>
         </div>
       </header>
@@ -279,28 +339,64 @@ export function EvidenceReport({
             </p>
           ) : (
             <div className="flex flex-col gap-2">
-              {signalScore[activeTab].map((entry, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    'rounded-lg border p-3',
-                    SIGNAL_META[activeTab].bg,
-                    SIGNAL_META[activeTab].border
-                  )}
-                >
-                  <p
+              {signalScore[activeTab].map((entry, i) => {
+                // Her kategori kendi açıklama alanına sahip
+                const explanation =
+                  activeTab === 'strong'
+                    ? (entry as StrongSignalEntry).whyItMatters
+                    : activeTab === 'medium'
+                    ? (entry as MediumSignalEntry).context
+                    : activeTab === 'weak'
+                    ? (entry as WeakSignalEntry).whyItIsWeak
+                    : (entry as NegativeSignalEntry).whyItIsNegative
+
+                return (
+                  <div
+                    key={i}
                     className={cn(
-                      'text-sm leading-relaxed',
-                      SIGNAL_META[activeTab].text
+                      'rounded-lg border p-3',
+                      SIGNAL_META[activeTab].bg,
+                      SIGNAL_META[activeTab].border
                     )}
                   >
-                    &ldquo;{entry.quote}&rdquo;
-                  </p>
-                </div>
-              ))}
+                    <p
+                      className={cn(
+                        'text-sm leading-relaxed',
+                        SIGNAL_META[activeTab].text
+                      )}
+                    >
+                      &ldquo;{entry.quote}&rdquo;
+                    </p>
+                    {explanation && (
+                      <p className="text-muted-foreground mt-1.5 text-xs leading-relaxed">
+                        {explanation}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
+
+        {/* Open Questions — sadece analysis_json varsa göster */}
+        {openQuestions.length > 0 && (
+          <div className="bg-card rounded-xl border p-4">
+            <p className="text-muted-foreground mb-2 text-xs font-medium uppercase tracking-wider">
+              Sonraki Mülakatlar İçin Açık Sorular
+            </p>
+            <ol className="space-y-1">
+              {openQuestions.map((q, i) => (
+                <li key={i} className="text-sm leading-relaxed">
+                  <span className="text-muted-foreground mr-2 font-mono text-xs">
+                    {i + 1}.
+                  </span>
+                  {q}
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
 
         {/* Recommended Next Step */}
         {nextStep && (

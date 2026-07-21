@@ -11,13 +11,15 @@ export default async function ReportPage({
 }) {
   const { interviewId } = await params
 
-  // Interview'u çek
+  // Interview'u çek — analysis_json da dahil
   const interviewRows = await db
     .select({
       id: interviews.id,
       participant_name: interviews.participant_name,
+      participant_role: interviews.participant_role,
       signal_score: interviews.signal_score,
       evidence_report: interviews.evidence_report,
+      analysis_json: interviews.analysis_json,
     })
     .from(interviews)
     .where(eq(interviews.id, interviewId))
@@ -46,8 +48,10 @@ export default async function ReportPage({
     <EvidenceReport
       interview={{
         participant_name: interview.participant_name,
+        participant_role: interview.participant_role ?? undefined,
         signal_score: interview.signal_score,
         evidence_report: interview.evidence_report,
+        analysis_json: interview.analysis_json ?? null,
       }}
       messages={
         messageRows as Array<{
