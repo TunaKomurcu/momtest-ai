@@ -37,6 +37,7 @@ export const interviews = pgTable('interviews', {
   signal_score:     jsonb('signal_score'),
   evidence_report:  text('evidence_report'),
   analysis_json:    jsonb('analysis_json'),
+  analyzed_at:      timestamp('analyzed_at', { withTimezone: true }),
   created_at:       timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:       timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })

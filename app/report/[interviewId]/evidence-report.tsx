@@ -31,6 +31,9 @@ interface InterviewData {
   evidence_report: string
   /** Yeni kayıtlarda dolu, eski kayıtlarda null — fallback olarak evidence_report kullanılır */
   analysis_json: unknown | null
+  project_id: string
+  project_name?: string
+  analyzed_at?: string
 }
 
 interface MessageData {
@@ -278,14 +281,42 @@ export function EvidenceReport({
             <ArrowLeft className="size-4" />
           </Button>
         </Link>
-        <div className="flex flex-col">
-          <span className="text-sm font-semibold">Kanıt Raporu</span>
-          <span className="text-muted-foreground text-xs">
-            {interview.participant_name}
-            {interview.participant_role && (
-              <span className="ml-1 opacity-70">· {interview.participant_role}</span>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold">Kanıt Raporu</span>
+            {interview.project_name && (
+              <>
+                <span className="text-muted-foreground text-xs">·</span>
+                <Link
+                  href="/dashboard"
+                  className="text-muted-foreground hover:text-foreground truncate text-xs transition-colors"
+                >
+                  {interview.project_name}
+                </Link>
+              </>
             )}
-          </span>
+          </div>
+          <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
+            <span>{interview.participant_name}</span>
+            {interview.participant_role && (
+              <>
+                <span className="opacity-40">·</span>
+                <span className="opacity-70">{interview.participant_role}</span>
+              </>
+            )}
+            {interview.analyzed_at && (
+              <>
+                <span className="opacity-40">·</span>
+                <span className="opacity-60">
+                  {new Date(interview.analyzed_at).toLocaleDateString('tr-TR', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })}
+                </span>
+              </>
+            )}
+          </div>
         </div>
       </header>
 

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { db } from '@/lib/db/index'
-import { interviews, messages } from '@/lib/db/schema'
+import { interviews, messages, projects } from '@/lib/db/schema'
 import { eq, asc } from 'drizzle-orm'
 import { EvidenceReport } from './evidence-report'
 
@@ -11,15 +11,17 @@ export default async function ReportPage({
 }) {
   const { interviewId } = await params
 
-  // Interview'u çek — analysis_json da dahil
+  // Interview'u çek
   const interviewRows = await db
     .select({
       id: interviews.id,
+      project_id: interviews.project_id,
       participant_name: interviews.participant_name,
       participant_role: interviews.participant_role,
       signal_score: interviews.signal_score,
       evidence_report: interviews.evidence_report,
       analysis_json: interviews.analysis_json,
+      analyzed_at: interviews.analyzed_at,
     })
     .from(interviews)
     .where(eq(interviews.id, interviewId))
@@ -31,6 +33,16 @@ export default async function ReportPage({
   if (!interview || !interview.evidence_report) {
     redirect('/dashboard')
   }
+
+  // Proje adını çek
+  const projectRows = await db
+    .select({ id: projects.id, product_idea: projects.product_idea })
+    .from(projects)
+    .where(eq(projects.id, interview.project_id))
+    .limit(1)
+    .catch(() => [])
+
+  const project = projectRows[0]
 
   // Transkript mesajlarını çek
   const messageRows = await db
@@ -52,6 +64,9 @@ export default async function ReportPage({
         signal_score: interview.signal_score,
         evidence_report: interview.evidence_report,
         analysis_json: interview.analysis_json ?? null,
+        project_id: interview.project_id,
+        project_name: project?.product_idea ?? undefined,
+        analyzed_at: interview.analyzed_at?.toISOString() ?? undefined,
       }}
       messages={
         messageRows as Array<{

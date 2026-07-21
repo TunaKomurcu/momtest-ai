@@ -511,6 +511,7 @@ export async function POST(
         signal_score: signalScore,
         evidence_report: markdownReport,
         analysis_json: analysis,
+        analyzed_at: new Date(),
         updated_at: new Date(),
       })
       .where(eq(interviews.id, interviewId))
