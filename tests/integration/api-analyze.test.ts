@@ -75,7 +75,7 @@ const FULL_ANALYSIS = makeAnalysis({
   weakEvidence: [
     { quote: 'I would probably try it.', message_id: 'msg-004', whyItIsWeak: 'Hypothetical intent.' },
   ],
-  negativeEvidence: ['Never paid for a solution.'],
+  negativeEvidence: [{ quote: 'Never paid for a solution.', message_id: '', whyItIsNegative: 'No existing spend on the problem — budget signal is negative.' }],
   openQuestions: ['Is frequency higher for other freelancer types?'],
   recommendedNextStep: 'Run 3 more interviews focusing on budget behavior.',
 })
@@ -93,10 +93,12 @@ describe('buildSignalScore', () => {
     expect(score.negative).toHaveLength(0)
   })
 
-  it('maps strong evidence to { quote, message_id }', () => {
+  it('maps strong evidence with quote, message_id and whyItMatters', () => {
     const score = buildSignalScore(FULL_ANALYSIS)
     expect(score.strong).toHaveLength(2)
-    expect(score.strong[0]).toEqual({ quote: 'Last month two clients paid late.', message_id: 'msg-001' })
+    expect(score.strong[0].quote).toBe('Last month two clients paid late.')
+    expect(score.strong[0].message_id).toBe('msg-001')
+    expect((score.strong[0] as { whyItMatters: string }).whyItMatters).toBe('Recent specific event.')
   })
 
   it('maps medium evidence correctly', () => {
@@ -111,17 +113,19 @@ describe('buildSignalScore', () => {
     expect(score.weak[0].message_id).toBe('msg-004')
   })
 
-  it('negative evidence gets empty string message_id', () => {
+  it('negative evidence has quote, message_id and whyItIsNegative fields', () => {
     const score = buildSignalScore(FULL_ANALYSIS)
     expect(score.negative).toHaveLength(1)
     expect(score.negative[0].message_id).toBe('')
     expect(score.negative[0].quote).toBe('Never paid for a solution.')
+    expect(score.negative[0].whyItIsNegative).toBeTruthy()
   })
 
-  it('whyItMatters and context fields are stripped (only quote + message_id kept)', () => {
+  it('whyItMatters, context and whyItIsWeak fields are preserved in signal score', () => {
     const score = buildSignalScore(FULL_ANALYSIS)
-    expect(Object.keys(score.strong[0])).toEqual(['quote', 'message_id'])
-    expect(Object.keys(score.medium[0])).toEqual(['quote', 'message_id'])
+    expect((score.strong[0] as { whyItMatters: string }).whyItMatters).toBe('Recent specific event.')
+    expect((score.medium[0] as { context: string }).context).toBe('Self-reported frequency.')
+    expect((score.weak[0] as { whyItIsWeak: string }).whyItIsWeak).toBe('Hypothetical intent.')
   })
 })
 
@@ -200,9 +204,11 @@ describe('buildMarkdownReport', () => {
     expect(report).toContain('| Quote or observation | Why it is weak |')
   })
 
-  it('negative evidence uses bullet list format', () => {
+  it('negative evidence uses table format', () => {
     const report = buildMarkdownReport(FULL_ANALYSIS, 'P')
-    expect(report).toContain('- Never paid for a solution.')
+    expect(report).toContain('## Negative evidence')
+    expect(report).toContain('| Quote or observation | Why it is negative |')
+    expect(report).toContain('Never paid for a solution.')
   })
 
   it('open questions are numbered', () => {

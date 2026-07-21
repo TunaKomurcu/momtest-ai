@@ -14,14 +14,30 @@
 import { describe, it, expect } from 'vitest'
 import type { StructuredAnalysis, SignalScore, SignalSummary } from '@/types/index'
 
-// ── Helpers mirrored from app/api/analyze route ───────────────────────────
+// ── Helpers mirrored from lib/api-helpers/analyze ────────────────────────
 
 function buildSignalScore(analysis: StructuredAnalysis): SignalScore {
   return {
-    strong: analysis.strongEvidence.map((e) => ({ quote: e.quote, message_id: e.message_id })),
-    medium: analysis.mediumEvidence.map((e) => ({ quote: e.quote, message_id: e.message_id })),
-    weak:   analysis.weakEvidence.map((e) => ({ quote: e.quote, message_id: e.message_id })),
-    negative: analysis.negativeEvidence.map((desc) => ({ quote: desc, message_id: '' })),
+    strong: analysis.strongEvidence.map((e) => ({
+      quote: e.quote,
+      message_id: e.message_id,
+      whyItMatters: e.whyItMatters,
+    })),
+    medium: analysis.mediumEvidence.map((e) => ({
+      quote: e.quote,
+      message_id: e.message_id,
+      context: e.context,
+    })),
+    weak: analysis.weakEvidence.map((e) => ({
+      quote: e.quote,
+      message_id: e.message_id,
+      whyItIsWeak: e.whyItIsWeak,
+    })),
+    negative: analysis.negativeEvidence.map((e) => ({
+      quote: e.quote,
+      message_id: e.message_id,
+      whyItIsNegative: e.whyItIsNegative,
+    })),
   }
 }
 
@@ -120,7 +136,7 @@ describe('UC4 — Compliment trap (Maya persona)', () => {
       },
     ],
     negativeEvidence: [
-      'Participant could not provide a recent specific example of invoice pain.',
+      { quote: 'Participant could not provide a recent specific example of invoice pain.', message_id: '', whyItIsNegative: 'No concrete behavioral evidence of the problem.' },
     ],
     decision: 'change segment',
     recommendedNextStep: 'Find participants with documented invoice follow-up pain.',
@@ -268,11 +284,11 @@ describe('UC6 — No real pain (Arda persona)', () => {
     mediumEvidence: [],
     weakEvidence: [],
     negativeEvidence: [
-      'Problem is rare: only one late payment this year.',
-      'No workaround exists — participant checks bank account informally.',
-      'No urgency: 50% upfront payment model avoids the problem.',
-      'Participant explicitly said they would not add another tool for this.',
-      'Segment mismatch: prepaid clients are not the target customer.',
+      { quote: 'Problem is rare: only one late payment this year.', message_id: '', whyItIsNegative: 'Low frequency — not a recurring problem.' },
+      { quote: 'No workaround exists — participant checks bank account informally.', message_id: '', whyItIsNegative: 'No real effort invested in solving the problem.' },
+      { quote: 'No urgency: 50% upfront payment model avoids the problem.', message_id: '', whyItIsNegative: 'Existing model eliminates the pain point.' },
+      { quote: 'Participant explicitly said they would not add another tool for this.', message_id: '', whyItIsNegative: 'Active resistance to any solution.' },
+      { quote: 'Segment mismatch: prepaid clients are not the target customer.', message_id: '', whyItIsNegative: 'Wrong segment — problem does not apply to their business model.' },
     ],
     decision: 'change segment',
     recommendedNextStep: 'Test freelancers with net-30 or net-60 payment terms and higher invoice volume.',
@@ -517,8 +533,11 @@ describe('Definition of done — §21', () => {
 
   it('no pain case: strong_count = 0, decision is change segment or stop', () => {
     const analysis = makeAnalysis({
-      negativeEvidence: ['No recurring problem.', 'No workaround used.', 'No urgency.'],
-      decision: 'change segment',
+      negativeEvidence: [
+        { quote: 'No recurring problem.', message_id: '', whyItIsNegative: 'Problem is not recurring — low frequency.' },
+        { quote: 'No workaround used.', message_id: '', whyItIsNegative: 'No effort invested in solving it.' },
+        { quote: 'No urgency.', message_id: '', whyItIsNegative: 'Participant feels no time or cost pressure.' },
+      ],      decision: 'change segment',
     })
     expect(buildSignalSummary(analysis).strong_count).toBe(0)
     expect(['change segment', 'stop']).toContain(analysis.decision)

@@ -1,0 +1,72 @@
+{
+  "goal": "Understand the specific challenges, metrics, and behaviors influencing the adoption of a new database analysis and documentation tool.",
+  "questions": [
+    {
+      "order": 1,
+      "question": "Can you describe a recent instance where your team faced deployment failures related to hidden business logic in your databases?",
+      "whyItPasses": "It focuses on a specific past event rather than hypothetical scenarios.",
+      "signalSought": "frequency and impact of deployment failures"
+    },
+    {
+      "order": 2,
+      "question": "What specific challenges did your team encounter during that deployment?",
+      "whyItPasses": "It asks for concrete examples of problems faced in the past.",
+      "signalSought": "problem details and impact"
+    },
+    {
+      "order": 3,
+      "question": "How many developers on your team are familiar with the intricacies of your legacy database?",
+      "whyItPasses": "It seeks factual information about team composition and knowledge.",
+      "signalSought": "dependency on senior developers"
+    },
+    {
+      "order": 4,
+      "question": "Can you share any experiences where you lost key personnel and how it affected your database management?",
+      "whyItPasses": "It probes for past incidents that reveal dependency concerns.",
+      "signalSought": "risks related to losing key personnel"
+    },
+    {
+      "order": 5,
+      "question": "What has been your experience with integrating new tools into your existing workflows?",
+      "whyItPasses": "It asks for past experiences rather than opinions on future changes.",
+      "signalSought": "reluctance to change due to time constraints"
+    },
+    {
+      "order": 6,
+      "question": "Can you provide an example of a time when adopting a new tool caused significant delays or challenges?",
+      "whyItPasses": "It requests specific past examples rather than hypothetical opinions.",
+      "signalSought": "time investment required for adopting new tools"
+    },
+    {
+      "order": 7,
+      "question": "How do you address data security concerns when considering new software solutions?",
+      "whyItPasses": "It focuses on past behaviors and decisions related to security.",
+      "signalSought": "data security concerns"
+    },
+    {
+      "order": 8,
+      "question": "Have there been instances where your team hesitated to adopt cloud-based solutions? What were the reasons?",
+      "whyItPasses": "It seeks specific examples of hesitations rather than general opinions.",
+      "signalSought": "cloud adoption hesitations"
+    },
+    {
+      "order": 9,
+      "question": "What alternatives have you explored to address database documentation and analysis in the past?",
+      "whyItPasses": "It asks about past behaviors and decisions without suggesting new solutions.",
+      "signalSought": "exploration of alternatives"
+    },
+    {
+      "order": 10,
+      "question": "Reflecting on your past experiences, how often do you think about improving database management practices?",
+      "whyItPasses": "It encourages discussion of past thoughts and behaviors without leading questions.",
+      "signalSought": "frequency of thoughts on improvement"
+    }
+  ],
+  "rulesForInterviewer": [
+    "do not pitch the product",
+    "ask one question at a time",
+    "ask for past examples",
+    "redirect compliments to behavior",
+    "probe vague answers"
+  ]
+}

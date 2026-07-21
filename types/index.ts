@@ -202,7 +202,39 @@ export interface GenerateStreamChunk {
 // Analyze API — app/api/analyze/[interviewId]/route.ts
 // ---------------------------------------------------------------------------
 
-/** Tek bir sinyal kaydı — alıntı + kaynak mesaj ID'si */
+/** Güçlü kanıt kaydı — alıntı + kaynak mesaj ID'si + neden önemli olduğu */
+export interface StrongSignalEntry {
+  quote: string
+  message_id: string
+  whyItMatters: string
+}
+
+/** Orta kanıt kaydı — alıntı + kaynak mesaj ID'si + neden strong değil açıklaması */
+export interface MediumSignalEntry {
+  quote: string
+  message_id: string
+  context: string
+}
+
+/** Zayıf kanıt kaydı — alıntı + kaynak mesaj ID'si + neden zayıf olduğu */
+export interface WeakSignalEntry {
+  quote: string
+  message_id: string
+  whyItIsWeak: string
+}
+
+/** Negatif kanıt kaydı — alıntı + kaynak mesaj ID'si + neden negatif olduğu */
+export interface NegativeSignalEntry {
+  quote: string
+  message_id: string
+  whyItIsNegative: string
+}
+
+/**
+ * Geriye dönük uyumluluk için genel SignalEntry tipi.
+ * Eski kod bu tipi kullanıyorsa hata vermemesi için tutulur.
+ * Yeni kodda kategori-spesifik tipler kullanılmalıdır.
+ */
 export interface SignalEntry {
   quote: string
   message_id: string
@@ -211,12 +243,13 @@ export interface SignalEntry {
 /**
  * interviews.signal_score JSONB alanında saklanan yapı.
  * Skill 6 çıktısına göre dört kategoriye ayrılmış sinyal kayıtları.
+ * Her kategori kendi açıklama alanını içerir — veri kaybı olmaz.
  */
 export interface SignalScore {
-  strong: SignalEntry[]
-  medium: SignalEntry[]
-  weak: SignalEntry[]
-  negative: SignalEntry[]
+  strong: StrongSignalEntry[]
+  medium: MediumSignalEntry[]
+  weak: WeakSignalEntry[]
+  negative: NegativeSignalEntry[]
 }
 
 /**
@@ -269,7 +302,7 @@ export interface StructuredAnalysis {
   strongEvidence: Array<{ quote: string; message_id: string; whyItMatters: string }>
   mediumEvidence: Array<{ quote: string; message_id: string; context: string }>
   weakEvidence: Array<{ quote: string; message_id: string; whyItIsWeak: string }>
-  negativeEvidence: string[]
+  negativeEvidence: Array<{ quote: string; message_id: string; whyItIsNegative: string }>
   openQuestions: string[]
   recommendedNextStep: string
 }

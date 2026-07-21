@@ -16,6 +16,10 @@ import type {
   SignalScore,
   SignalSummary,
   StructuredAnalysis,
+  StrongSignalEntry,
+  MediumSignalEntry,
+  WeakSignalEntry,
+  NegativeSignalEntry,
 } from '@/types/index'
 
 // ---------------------------------------------------------------------------
@@ -114,7 +118,7 @@ Output ONLY valid JSON. No prose, no markdown fences, no explanation — just th
     { "quote": "...", "message_id": "msg-uuid", "whyItIsWeak": "compliment/hypothetical/opinion/etc." }
   ],
   "negativeEvidence": [
-    "plain description of what suggests the idea may be wrong"
+    { "quote": "exact or close paraphrase from participant", "message_id": "msg-uuid", "whyItIsNegative": "why this is a red flag — e.g. no recent example, workaround is good enough, not the buyer" }
   ],
   "openQuestions": [
     "next important unknown 1",
@@ -152,21 +156,25 @@ function loadAgentConfig(): Partial<OpenAIAgentConfig> {
 
 function buildSignalScore(analysis: StructuredAnalysis): SignalScore {
   return {
-    strong: analysis.strongEvidence.map((e) => ({
+    strong: analysis.strongEvidence.map((e): StrongSignalEntry => ({
       quote: e.quote,
       message_id: e.message_id,
+      whyItMatters: e.whyItMatters,
     })),
-    medium: analysis.mediumEvidence.map((e) => ({
+    medium: analysis.mediumEvidence.map((e): MediumSignalEntry => ({
       quote: e.quote,
       message_id: e.message_id,
+      context: e.context,
     })),
-    weak: analysis.weakEvidence.map((e) => ({
+    weak: analysis.weakEvidence.map((e): WeakSignalEntry => ({
       quote: e.quote,
       message_id: e.message_id,
+      whyItIsWeak: e.whyItIsWeak,
     })),
-    negative: analysis.negativeEvidence.map((desc) => ({
-      quote: desc,
-      message_id: '',
+    negative: analysis.negativeEvidence.map((e): NegativeSignalEntry => ({
+      quote: e.quote,
+      message_id: e.message_id,
+      whyItIsNegative: e.whyItIsNegative,
     })),
   }
 }
@@ -213,6 +221,16 @@ function buildMarkdownReport(
     lines.push('')
   }
 
+  if (analysis.mediumEvidence.length > 0) {
+    lines.push('## Medium evidence')
+    lines.push('| Quote or observation | Context |')
+    lines.push('|---|---|')
+    analysis.mediumEvidence.forEach((e) => {
+      lines.push(`| ${e.quote} | ${e.context} |`)
+    })
+    lines.push('')
+  }
+
   if (analysis.weakEvidence.length > 0) {
     lines.push('## Weak or misleading evidence')
     lines.push('| Quote or observation | Why it is weak |')
@@ -225,8 +243,10 @@ function buildMarkdownReport(
 
   if (analysis.negativeEvidence.length > 0) {
     lines.push('## Negative evidence')
-    analysis.negativeEvidence.forEach((desc) => {
-      lines.push(`- ${desc}`)
+    lines.push('| Quote or observation | Why it is negative |')
+    lines.push('|---|---|')
+    analysis.negativeEvidence.forEach((e) => {
+      lines.push(`| ${e.quote} | ${e.whyItIsNegative} |`)
     })
     lines.push('')
   }

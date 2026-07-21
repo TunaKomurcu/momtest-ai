@@ -94,9 +94,26 @@ export function validateStructuredAnalysis(parsed: unknown): ValidationResult<St
     issues.push('weakEvidence must be an array')
   }
 
-  // negativeEvidence — array (boş olabilir)
+  // negativeEvidence — array of { quote, message_id, whyItIsNegative } (boş olabilir)
   if (!isPlainArray(p.negativeEvidence)) {
     issues.push('negativeEvidence must be an array')
+  } else {
+    p.negativeEvidence.forEach((item, idx) => {
+      if (typeof item !== 'object' || item === null) {
+        issues.push(`negativeEvidence[${idx}] must be an object`)
+        return
+      }
+      const e = item as Record<string, unknown>
+      if (!isNonEmptyString(e.quote)) {
+        issues.push(`negativeEvidence[${idx}].quote must be a non-empty string`)
+      }
+      if (typeof e.message_id !== 'string') {
+        issues.push(`negativeEvidence[${idx}].message_id must be a string`)
+      }
+      if (!isNonEmptyString(e.whyItIsNegative)) {
+        issues.push(`negativeEvidence[${idx}].whyItIsNegative must be a non-empty string`)
+      }
+    })
   }
 
   // openQuestions — array, en az 1 eleman

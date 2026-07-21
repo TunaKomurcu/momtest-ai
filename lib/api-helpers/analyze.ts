@@ -7,28 +7,37 @@ import type {
   StructuredAnalysis,
   SignalScore,
   SignalSummary,
+  StrongSignalEntry,
+  MediumSignalEntry,
+  WeakSignalEntry,
+  NegativeSignalEntry,
 } from '@/types/index'
 
 /**
  * StructuredAnalysis çıktısından SignalScore JSONB yapısını türetir.
+ * Tüm açıklama alanları (whyItMatters, context, whyItIsWeak, whyItIsNegative) korunur.
  */
 export function buildSignalScore(analysis: StructuredAnalysis): SignalScore {
   return {
-    strong: analysis.strongEvidence.map((e) => ({
+    strong: analysis.strongEvidence.map((e): StrongSignalEntry => ({
       quote: e.quote,
       message_id: e.message_id,
+      whyItMatters: e.whyItMatters,
     })),
-    medium: analysis.mediumEvidence.map((e) => ({
+    medium: analysis.mediumEvidence.map((e): MediumSignalEntry => ({
       quote: e.quote,
       message_id: e.message_id,
+      context: e.context,
     })),
-    weak: analysis.weakEvidence.map((e) => ({
+    weak: analysis.weakEvidence.map((e): WeakSignalEntry => ({
       quote: e.quote,
       message_id: e.message_id,
+      whyItIsWeak: e.whyItIsWeak,
     })),
-    negative: analysis.negativeEvidence.map((desc) => ({
-      quote: desc,
-      message_id: '',
+    negative: analysis.negativeEvidence.map((e): NegativeSignalEntry => ({
+      quote: e.quote,
+      message_id: e.message_id,
+      whyItIsNegative: e.whyItIsNegative,
     })),
   }
 }
@@ -81,6 +90,16 @@ export function buildMarkdownReport(
     lines.push('')
   }
 
+  if (analysis.mediumEvidence.length > 0) {
+    lines.push('## Medium evidence')
+    lines.push('| Quote or observation | Context |')
+    lines.push('|---|---|')
+    analysis.mediumEvidence.forEach((e) =>
+      lines.push(`| ${e.quote} | ${e.context} |`)
+    )
+    lines.push('')
+  }
+
   if (analysis.weakEvidence.length > 0) {
     lines.push('## Weak or misleading evidence')
     lines.push('| Quote or observation | Why it is weak |')
@@ -93,7 +112,11 @@ export function buildMarkdownReport(
 
   if (analysis.negativeEvidence.length > 0) {
     lines.push('## Negative evidence')
-    analysis.negativeEvidence.forEach((desc) => lines.push(`- ${desc}`))
+    lines.push('| Quote or observation | Why it is negative |')
+    lines.push('|---|---|')
+    analysis.negativeEvidence.forEach((e) =>
+      lines.push(`| ${e.quote} | ${e.whyItIsNegative} |`)
+    )
     lines.push('')
   }
 

@@ -13,5 +13,45 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # NemoClaw — Hermes Agent Gateway (test ortamı)
+  #
+  # Başlatmak için:
+  #   docker compose up nemo-agent
+  #
+  # Sadece test/bridge senaryolarında kullanılır.
+  # Mevcut Next.js uygulamasına ve PostgreSQL'e dokunmaz.
+  #
+  # NVIDIA NIM API'yi tercih ediyorsanız bu servisi başlatmanıza gerek yok:
+  # nemo-bridge/config.yaml içinde local_mode: false yapın.
+  # ─────────────────────────────────────────────────────────────────────────
+  nemo-agent:
+    image: nvcr.io/nvidia/nemo/nemo-retriever-embedding-microservice:24.11
+    # Alternatif (Hermes tabanlı gateway varsa):
+    # image: nvcr.io/nvidia/nim/hermes-2-pro-llama-3-8b:latest
+    container_name: momtest-nemo-agent
+    restart: "no"       # test servisi — otomatik restart yok
+    ports:
+      - "8000:8000"
+    environment:
+      # NGC API key — NVIDIA Container Registry erişimi için
+      NGC_API_KEY: ${NGC_API_KEY:-}
+      # Model config — config.yaml ile tutarlı olmalı
+      NIM_MODEL_NAME: ${NIM_MODEL_NAME:-hermes-2-pro}
+    volumes:
+      # Skill dosyasını container içine bağla
+      - ./nemo-bridge/skills:/app/skills:ro
+      - ./nemo-bridge/config.yaml:/app/config.yaml:ro
+    profiles:
+      # Sadece `docker compose --profile nemo up` ile başlatılır
+      # Normal `docker compose up` bunu atlar
+      - nemo
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
 volumes:
   postgres_data:

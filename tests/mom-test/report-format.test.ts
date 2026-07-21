@@ -14,14 +14,14 @@
 import { describe, it, expect } from 'vitest'
 import type { StructuredAnalysis, SignalScore, SignalSummary } from '@/types/index'
 
-// ── Helpers mirrored from app/api/analyze route ───────────────────────────
+// ── Helpers mirrored from lib/api-helpers/analyze ────────────────────────
 
 function buildSignalScore(analysis: StructuredAnalysis): SignalScore {
   return {
-    strong:   analysis.strongEvidence.map((e) => ({ quote: e.quote, message_id: e.message_id })),
-    medium:   analysis.mediumEvidence.map((e) => ({ quote: e.quote, message_id: e.message_id })),
-    weak:     analysis.weakEvidence.map((e) => ({ quote: e.quote, message_id: e.message_id })),
-    negative: analysis.negativeEvidence.map((d) => ({ quote: d, message_id: '' })),
+    strong:   analysis.strongEvidence.map((e) => ({ quote: e.quote, message_id: e.message_id, whyItMatters: e.whyItMatters })),
+    medium:   analysis.mediumEvidence.map((e) => ({ quote: e.quote, message_id: e.message_id, context: e.context })),
+    weak:     analysis.weakEvidence.map((e) => ({ quote: e.quote, message_id: e.message_id, whyItIsWeak: e.whyItIsWeak })),
+    negative: analysis.negativeEvidence.map((e) => ({ quote: e.quote, message_id: e.message_id, whyItIsNegative: e.whyItIsNegative })),
   }
 }
 
@@ -53,6 +53,12 @@ function buildMarkdownReport(analysis: StructuredAnalysis, participantName: stri
     lines.push('|---|---|')
     analysis.strongEvidence.forEach((e) => lines.push(`| ${e.quote} | ${e.whyItMatters} |`))
   }
+  if (analysis.mediumEvidence.length > 0) {
+    lines.push('## Medium evidence')
+    lines.push('| Quote or observation | Context |')
+    lines.push('|---|---|')
+    analysis.mediumEvidence.forEach((e) => lines.push(`| ${e.quote} | ${e.context} |`))
+  }
   if (analysis.weakEvidence.length > 0) {
     lines.push('## Weak or misleading evidence')
     lines.push('| Quote or observation | Why it is weak |')
@@ -61,7 +67,9 @@ function buildMarkdownReport(analysis: StructuredAnalysis, participantName: stri
   }
   if (analysis.negativeEvidence.length > 0) {
     lines.push('## Negative evidence')
-    analysis.negativeEvidence.forEach((d) => lines.push(`- ${d}`))
+    lines.push('| Quote or observation | Why it is negative |')
+    lines.push('|---|---|')
+    analysis.negativeEvidence.forEach((e) => lines.push(`| ${e.quote} | ${e.whyItIsNegative} |`))
   }
   if (analysis.openQuestions.length > 0) {
     lines.push('## Open questions')
@@ -142,9 +150,9 @@ describe('UC10 — Report generation from transcript', () => {
     ],
     mediumEvidence: [],
     negativeEvidence: [
-      'Problem occurs only once every two months — low frequency.',
-      'Participant has never paid for a solution.',
-      'Standalone product may not be urgent enough.',
+      { quote: 'Problem occurs only once every two months — low frequency.', message_id: '', whyItIsNegative: 'Low frequency means low urgency.' },
+      { quote: 'Participant has never paid for a solution.', message_id: '', whyItIsNegative: 'No budget signal — negative commitment indicator.' },
+      { quote: 'Standalone product may not be urgent enough.', message_id: '', whyItIsNegative: 'Integration dependency creates uncertainty.' },
     ],
     openQuestions: [
       'Would this work better as an integration inside existing invoicing tools?',
@@ -342,7 +350,7 @@ describe('§3 — Required final report content checks', () => {
     weakEvidence: [
       { quote: 'I would probably try it.', message_id: 'm3', whyItIsWeak: 'Hypothetical intent.' },
     ],
-    negativeEvidence: ['No existing spend on the problem.'],
+    negativeEvidence: [{ quote: 'No existing spend on the problem.', message_id: '', whyItIsNegative: 'No budget signal — commitment is negative.' }],
     openQuestions: ['Is frequency actually higher for other freelancer types?'],
     recommendedNextStep: 'Interview 3 more freelancers with higher invoice volume.',
   }

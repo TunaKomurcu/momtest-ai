@@ -1,0 +1,60 @@
+{
+  "productIdea": "SchemaTrace AI is an autonomous developer tool that reverse-engineers corporate databases and business logic.",
+  "assumptionMap": [
+    {
+      "riskLevel": "high",
+      "assumption": "The current pain of deployment failures due to hidden business logic affects their efficiency.",
+      "weakEvidence": "General statements about difficulties without specifics.",
+      "strongEvidence": "Documentation of deployment failures directly related to database issues.",
+      "whatToAskAbout": "Specific examples of deployment failures and their impact."
+    },
+    {
+      "riskLevel": "high",
+      "assumption": "Companies are concerned about data security when adopting new software.",
+      "weakEvidence": "Vague concerns about security without details.",
+      "strongEvidence": "Detailed descriptions of their security protocols and hesitations.",
+      "whatToAskAbout": "Their current security protocols and concerns with third-party tools."
+    },
+    {
+      "riskLevel": "medium",
+      "assumption": "There exists a dependency on key developers who understand the database intricacies.",
+      "weakEvidence": "General awareness of key individuals without impact metrics.",
+      "strongEvidence": "Concrete data on the number of key developers and their impact on operations.",
+      "whatToAskAbout": "How many key developers are there and the risks associated with their absence."
+    },
+    {
+      "riskLevel": "medium",
+      "assumption": "Adoption of new tools is often delayed due to existing workload and time constraints.",
+      "weakEvidence": "General claims about being too busy without specific instances.",
+      "strongEvidence": "Specific examples of delayed integrations due to workload.",
+      "whatToAskAbout": "Current workload and perceived time to integrate new tools."
+    }
+  ],
+  "coreSituation": "When developers face deployment failures due to hidden business logic in SQL stored procedures and triggers.",
+  "currentBelief": "PM believes that target companies will adopt the software despite security concerns and workflow changes.",
+  "evidenceNeeded": {
+    "weak": "General opinions or hypothetical willingness to use a new tool.",
+    "strong": "Data on onboarding times for new developers and bug statistics related to database issues.",
+    "negative": "No significant pain points or urgency to change current workflows."
+  },
+  "targetCustomer": "B2B technology companies in Turkey developing ERP and financial accounting software with 20 to 100 developers.",
+  "forbiddenQuestions": [
+    "Would you use a tool like this if it existed?",
+    "Would you pay $1000 a month for software that documents your database?",
+    "Isn't the idea of an AI agent that automatically solves business logic in the database great?",
+    "What features would you like to see in our software?",
+    "Do you generally have problems with database management?"
+  ],
+  "interviewObjective": "Understand the specific concerns, behaviors, and metrics influencing these companies' decisions regarding the adoption of a new database analysis tool.",
+  "riskiestAssumption": "Target companies are willing to adopt a new software solution for documenting and analyzing their databases despite concerns about data security and changes in their existing workflows.",
+  "participantCriteria": {
+    "avoid": [
+      "Individuals from companies without complex data structures",
+      "Non-technical roles or users"
+    ],
+    "mustHave": [
+      "Experience in database management",
+      "Involvement in ERP software development"
+    ]
+  }
+}
