@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, Bot, User } from 'lucide-react'
+import { SignalDimensionsGrid } from './signal-dimensions-grid'
 import type {
   StrongSignalEntry,
   MediumSignalEntry,
@@ -291,6 +292,16 @@ export function EvidenceReport({
             </p>
           )}
         </div>
+
+        {/* Signal Dimensions Grid — analysis_json varsa göster */}
+        {analysisJson?.signalScore && (
+          <SignalDimensionsGrid
+            problemEvidence={analysisJson.signalScore.problemEvidence}
+            urgency={analysisJson.signalScore.urgency}
+            workaroundEvidence={analysisJson.signalScore.workaroundEvidence}
+            budgetOrCommitment={analysisJson.signalScore.budgetOrCommitment}
+          />
+        )}
 
         {/* Signal Score Overview */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
