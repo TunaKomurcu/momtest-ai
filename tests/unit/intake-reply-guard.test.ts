@@ -18,6 +18,7 @@ import { setupServer } from 'msw/node'
 import { http, HttpResponse } from 'msw'
 import {
   applyIntakeGuard,
+  hasMultipleQuestions,
   checkIntakeReplyIsolated,
   INTAKE_FALLBACK_MESSAGE,
 } from '@/lib/ai-guards/intake-reply-guard'
@@ -160,7 +161,7 @@ describe('applyIntakeGuard — RISKY kalıpları', () => {
     expect(result.verdict).toBe('risky')
   })
 
-  it('birden fazla soru işareti → risky', () => {
+  it('iki gerçek soru → risky (hasMultipleQuestions tetiklendi)', () => {
     const result = applyIntakeGuard('Who is your target user? And when does this problem occur?')
     expect(result.verdict).toBe('risky')
     expect(result.flags).toEqual(expect.arrayContaining([expect.stringMatching(/birden fazla soru/i)]))
@@ -298,6 +299,142 @@ describe('checkIntakeReplyIsolated — isolated LLM checker', () => {
     expect(body.messages[0].role).toBe('system')
     expect(body.messages[1].role).toBe('user')
     expect(body.messages[1].content).toBe('Who is your target user?')
+  })
+})
+
+// ── hasMultipleQuestions — semantik soru tespiti ─────────────────────────────
+//
+// Gerçek LLM cevap örnekleriyle kalibre edilmiştir.
+// Yanlış pozitif (false positive) ve gerçek ihlal (true positive) örneklerini
+// kapsar. LLM'in ürettiği tipik intake cevap kalıplarına göre seçilmiştir.
+
+describe('hasMultipleQuestions — semantik soru tespiti', () => {
+
+  // ── Gerçek ihlaller (true positive) — 2+ gerçek soru → true ─────────────
+
+  it('iki açık İngilizce soru → true', () => {
+    expect(hasMultipleQuestions(
+      'Who exactly experiences this problem? And when does it typically happen?'
+    )).toBe(true)
+  })
+
+  it('farklı 5W ile başlayan iki soru → true', () => {
+    expect(hasMultipleQuestions(
+      'What is the riskiest assumption here? How do you plan to test it?'
+    )).toBe(true)
+  })
+
+  it('yardımcı fiil başlangıçlı iki soru → true', () => {
+    expect(hasMultipleQuestions(
+      'Is this a problem for freelancers? Do they currently pay for any solution?'
+    )).toBe(true)
+  })
+
+  it('iki Türkçe gerçek soru → true', () => {
+    expect(hasMultipleQuestions(
+      'Bu problemi kimler yaşıyor? Ne sıklıkla karşılaşıyorlar?'
+    )).toBe(true)
+  })
+
+  it('karma Türkçe-İngilizce iki gerçek soru → true', () => {
+    expect(hasMultipleQuestions(
+      'Who is your target segment? Bu kitleye nasıl ulaşabilirsiniz?'
+    )).toBe(true)
+  })
+
+  it('üç gerçek soru → true', () => {
+    expect(hasMultipleQuestions(
+      'Who has this problem? When does it happen? How do they solve it today?'
+    )).toBe(true)
+  })
+
+  // ── Yanlış pozitif olmaması gerekenler (false positive) — tek soru → false
+
+  it('tek soru, soru işareti yok → false', () => {
+    expect(hasMultipleQuestions(
+      'Tell me about the last time this happened.'
+    )).toBe(false)
+  })
+
+  it('tek soru cümlesi → false', () => {
+    expect(hasMultipleQuestions(
+      'Who exactly has this problem today?'
+    )).toBe(false)
+  })
+
+  it('soru + açıklama cümlesi (? sadece birde) → false', () => {
+    // LLM sıklıkla sorudan sonra bağlam cümlesi ekler
+    expect(hasMultipleQuestions(
+      'What assumption would kill this idea if it were false? This will help us focus the interview.'
+    )).toBe(false)
+  })
+
+  it('"değil mi?" retorik eki — tek gerçek soru → false', () => {
+    // Türkçe'de retorik onay eki, ikinci bir soru değildir
+    expect(hasMultipleQuestions(
+      'Hedef kitlenizin bu problemi yaşadığını düşünüyorsunuz, değil mi?'
+    )).toBe(false)
+  })
+
+  it('"X mi yoksa Y mi?" seçim sorusu — tek gerçek soru → false', () => {
+    // "mi" ekleri tek bir seçim sorusunu oluşturur
+    expect(hasMultipleQuestions(
+      'Hedef kitleniz B2B mi yoksa B2C mi?'
+    )).toBe(false)
+  })
+
+  it('noktalama hatası gibi görünen ? — gerçek soru kalıbı yok → false', () => {
+    // Bazı LLM çıktıları sayı/kısaltma sonrasında ? koyabilir
+    expect(hasMultipleQuestions(
+      'The segment has ~50? accounts and the problem occurs weekly.'
+    )).toBe(false)
+  })
+
+  it('tek "How" sorusu + açıklama → false', () => {
+    expect(hasMultipleQuestions(
+      'How do they currently handle this problem? Understanding their workflow will clarify the assumption.'
+    )).toBe(false)
+  })
+
+  it('boş string → false', () => {
+    expect(hasMultipleQuestions('')).toBe(false)
+  })
+
+  it('soru işareti olmayan metin → false', () => {
+    expect(hasMultipleQuestions(
+      'Tell me about the last time this came up and what you did.'
+    )).toBe(false)
+  })
+
+  // ── applyIntakeGuard entegrasyonu — hasMultipleQuestions sonucu guard'a yansıyor
+
+  it('tek gerçek soru cümlesi applyIntakeGuard içinde → clean', () => {
+    expect(applyIntakeGuard(
+      'What assumption would kill this idea if it were false?'
+    ).verdict).toBe('clean')
+  })
+
+  it('soru + açıklama cümlesi applyIntakeGuard içinde → clean', () => {
+    // Sık görülen LLM kalıbı: soru + neden sorduğunu açıklayan cümle
+    expect(applyIntakeGuard(
+      'Which customer segment can you actually reach this week? Knowing this helps design the right test.'
+    ).verdict).toBe('clean')
+  })
+
+  it('"değil mi?" içeren tek soru applyIntakeGuard içinde → clean', () => {
+    expect(applyIntakeGuard(
+      'Bu problemi sadece küçük işletmeler mi yaşıyor, değil mi?'
+    ).verdict).toBe('clean')
+  })
+
+  it('iki gerçek soru applyIntakeGuard içinde → risky', () => {
+    const result = applyIntakeGuard(
+      'Who has this problem today? How often does it come up?'
+    )
+    expect(result.verdict).toBe('risky')
+    expect(result.flags).toEqual(
+      expect.arrayContaining([expect.stringMatching(/birden fazla soru/i)])
+    )
   })
 })
 

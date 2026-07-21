@@ -65,9 +65,58 @@ function isTooLong(reply: string): boolean {
   return reply.trim().split(/\s+/).length > 200
 }
 
-/** Birden fazla soru içeriyor mu — risky */
-function hasMultipleQuestions(reply: string): boolean {
-  return (reply.match(/\?/g) ?? []).length > 1
+/** Birden fazla GERÇEK soru içeriyor mu — risky
+ *
+ * Basit `?` sayımı yerine semantik tespit:
+ * 1. Metni `?` işaretine göre parçalara böl.
+ * 2. Her parçada gerçek bir soru kalıbı olup olmadığını kontrol et:
+ *    - İngilizce: 5W1H kelimeleri (who/what/when/where/why/how/which/whose/whom)
+ *    - İngilizce yardımcı fiil başlangıcı (do/does/did/is/are/was/were/have/has/had/
+ *                                           will/would/could/should/can/may/might/shall)
+ *    - Türkçe: soru ekleri (-mı/-mi/-mu/-mü, -mıyı/-miyi, ne/neden/nasıl/kim/hangi/kaç)
+ * 3. 2+ parçada gerçek soru kalıbı varsa → çok sorulu kabul et.
+ *
+ * Bu yaklaşım şunları yanlış pozitif saymaz:
+ *   - "... değil mi?" — tek parça, tek soru
+ *   - "X mi, Y mi?" — iki parça ama her ikisi de aynı sorunun devamı
+ *     (sadece ikinci parça kısa ve soru kalıbı taşımıyorsa)
+ *   - Retorik ifadeler: "Neden olmasın?" gibi tek cümle
+ */
+export function hasMultipleQuestions(reply: string): boolean {
+  // ? işareti yoksa ya da sadece bir tane varsa kesinlikle tek soru
+  const rawQuestionMarks = (reply.match(/\?/g) ?? []).length
+  if (rawQuestionMarks < 2) return false
+
+  // İngilizce 5W1H + yardımcı fiil başlangıcı kalıpları
+  // Önceki bağlaçları (And/But/Or) atla
+  const EN_QUESTION_START = /^\s*(?:and|but|or|so)?\s*(who|what|when|where|why|how|which|whose|whom|do|does|did|is|are|was|were|have|has|had|will|would|could|should|can|may|might|shall)\b/i
+
+  // Türkçe soru kelimeleri — satır/segment içinde geçen
+  const TR_QUESTION_WORD = /\b(ne\b|neden|nasıl|nerede|nereden|nereye|kim(ler?|in)?|hangi|kaç|kaçıncı|ne\s+zaman|ne\s+sıklıkla|ne\s+kadar)\b/i
+
+  // Türkçe soru eki — segment + ? ile birlikte test et
+  const TR_QUESTION_SUFFIX = /\b\w+(mı|mi|mu|mü|misin|mısın|musun|müsün|miyim|mıyım|muyum|müyüm|lar\s+mı|ler\s+mi)\s*\?/i
+
+  // Parçalara böl — her ? işaretine kadar olan metin bir segment
+  const segments = reply.split('?')
+  // Son eleman ? ile bitmiyorsa içerik taşımıyor
+  const questionSegments = segments.slice(0, -1)
+
+  let realQuestionCount = 0
+
+  for (const seg of questionSegments) {
+    // Segmenti son cümleye indir — nokta/ünlem/noktalı virgül/yeni satırdan sonrasını al
+    const lastSentence = (seg.split(/[.!;\n]/).pop() ?? seg).trim()
+
+    const isReal =
+      EN_QUESTION_START.test(lastSentence) ||
+      TR_QUESTION_WORD.test(lastSentence) ||
+      TR_QUESTION_SUFFIX.test(seg + '?')
+
+    if (isReal) realQuestionCount++
+  }
+
+  return realQuestionCount >= 2
 }
 
 // ---------------------------------------------------------------------------
