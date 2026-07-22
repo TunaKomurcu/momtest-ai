@@ -180,6 +180,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ interviewId: string }> }
 ): Promise<NextResponse<ApiResponse<InterviewResponseData>>> {
+  const requestStart = Date.now()
+
   const ip =
     request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
     request.headers.get('x-real-ip') ??
@@ -513,6 +515,15 @@ ${scriptContext}
       })()
     }
   }
+
+  const guardActive = !isClosingMessage(agentReply)
+  console.log(
+    `[Interview] POST /api/interview/${interviewId} — ` +
+    `${Date.now() - requestStart}ms | ` +
+    `injection: ${injectionDetected ? 'flagged' : 'clean'} | ` +
+    `guard: ${guardActive ? 'active' : 'skipped(closing)'} | ` +
+    `isComplete: ${isComplete}`
+  )
 
   return NextResponse.json(
     { data: { reply: agentReply, isComplete }, error: null },

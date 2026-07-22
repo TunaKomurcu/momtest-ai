@@ -133,6 +133,34 @@ const INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
 ]
 
 // ---------------------------------------------------------------------------
+// In-memory metrik sayacı
+// ---------------------------------------------------------------------------
+
+const LOG_INTERVAL = 10
+const _injectionMetrics = { totalCalls: 0, flaggedCalls: 0 }
+
+export function resetInjectionMetrics(): void {
+  _injectionMetrics.totalCalls = 0
+  _injectionMetrics.flaggedCalls = 0
+}
+
+export function getInjectionMetrics(): { totalCalls: number; flaggedCalls: number } {
+  return { ..._injectionMetrics }
+}
+
+function recordInjectionMetric(suspicious: boolean): void {
+  _injectionMetrics.totalCalls++
+  if (suspicious) _injectionMetrics.flaggedCalls++
+
+  if (_injectionMetrics.totalCalls % LOG_INTERVAL === 0) {
+    const pct = ((_injectionMetrics.flaggedCalls / _injectionMetrics.totalCalls) * 100).toFixed(1)
+    console.log(
+      `[Interview/injection] Flag rate: ${_injectionMetrics.flaggedCalls}/${_injectionMetrics.totalCalls} (%${pct})`
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
 // detectInjectionAttempt
 // ---------------------------------------------------------------------------
 
@@ -153,10 +181,13 @@ export function detectInjectionAttempt(
     }
   }
 
-  return {
+  const result: InjectionDetectResult = {
     suspicious: matchedPatterns.length > 0,
     matchedPatterns,
   }
+
+  recordInjectionMetric(result.suspicious)
+  return result
 }
 
 // ---------------------------------------------------------------------------
