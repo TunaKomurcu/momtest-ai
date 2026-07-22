@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, AlertTriangle, Bot, User } from 'lucide-react'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
+import { ArrowLeft, AlertTriangle, Bot, User, AlertCircle } from 'lucide-react'
 import { SignalDimensionsGrid } from './signal-dimensions-grid'
 import { useIsMobile } from '@/hooks/use-mobile'
 import type {
@@ -158,6 +159,8 @@ export function EvidenceReport({
   const decisionMeta =
     DECISION_META[decision.toLowerCase()] ?? DECISION_META['continue discovery']
 
+  const consistencyWarnings = analysisJson?.consistencyWarnings ?? []
+
   const signalMap = useMemo(() => {
     const map = new Map<string, SignalType>()
     SIGNAL_TYPES.forEach(type => {
@@ -227,7 +230,19 @@ export function EvidenceReport({
 
         {/* Decision Banner — tam genişlik */}
         <div className={cn('rounded-xl border p-5 text-center sm:p-6', decisionMeta.bg, decisionMeta.border)}>
-          <p className="text-muted-foreground mb-1 text-xs font-medium uppercase tracking-wider">Karar</p>
+          <div className="flex items-center justify-center gap-2">
+            <p className="text-muted-foreground mb-1 text-xs font-medium uppercase tracking-wider">Karar</p>
+            {consistencyWarnings.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger>
+                  <AlertCircle className="size-4 text-destructive" />
+                </TooltipTrigger>
+                <TooltipContent side="top" align="center">
+                  Bu kararın kanıt gücüyle tutarsız olabileceğini fark ettik, dikkatli değerlendirin.
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
           <h1 className={cn('text-xl font-bold sm:text-2xl', decisionMeta.text)}>{decisionMeta.label}</h1>
           {summary && (
             <p className="text-muted-foreground mx-auto mt-3 max-w-2xl text-sm leading-relaxed">{summary}</p>

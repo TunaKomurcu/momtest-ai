@@ -9,6 +9,7 @@ import { load as yamlLoad } from 'js-yaml'
 import { callWithJsonRetry, parseAndClean } from '@/lib/ai-guards/json-retry'
 import { validateStructuredAnalysis } from '@/lib/ai-guards/analysis-validator'
 import { verifyGrounding, issuesToWarnings } from '@/lib/ai-guards/grounding-verifier'
+import { checkDecisionConsistency } from '@/lib/decision-consistency-checker'
 import type {
   ApiResponse,
   OpenAIAgentConfig,
@@ -566,6 +567,17 @@ export async function POST(
       console.warn(
         `[Analyze/grounding] ${groundingIssues.length} sorun hâlâ mevcut, groundingWarnings eklendi`
       )
+    }
+  }
+
+  const consistencyWarnings = checkDecisionConsistency(analysis)
+  if (consistencyWarnings.length > 0) {
+    analysis = {
+      ...analysis,
+      consistencyWarnings: [
+        ...(analysis.consistencyWarnings ?? []),
+        ...consistencyWarnings,
+      ],
     }
   }
 

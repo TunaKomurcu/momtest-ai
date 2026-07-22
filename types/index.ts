@@ -317,6 +317,11 @@ export interface StructuredAnalysis {
    * LLM tarafından üretilmez — verifyGrounding() tarafından sonradan eklenir.
    */
   groundingWarnings?: string[]
+  /**
+   * Decision ile sinyal skorları arasındaki deterministik tutarsızlık uyarıları.
+   * Analiz kaydedilir ama bloklanmaz.
+   */
+  consistencyWarnings?: string[]
 }
 // ---------------------------------------------------------------------------
 // AI Guards — Loop & Harness validation
