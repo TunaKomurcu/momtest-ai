@@ -189,12 +189,17 @@ export interface InterviewScript {
   questions: InterviewQuestion[]
 }
 
+export interface ScriptCritique {
+  alignmentScore: number
+  missingCoverage: string[]
+}
+
 /**
  * Streaming response chunk tipi.
  * İstemci tarafında SSE parse ederken kullanılır.
  */
 export interface GenerateStreamChunk {
-  stage: 'research_brief' | 'interview_script' | 'done' | 'error'
+  stage: 'research_brief' | 'interview_script' | 'critique' | 'done' | 'error'
   content: string
 }
 

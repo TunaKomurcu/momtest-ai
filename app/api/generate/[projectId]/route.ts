@@ -8,12 +8,14 @@ import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
 import { callWithJsonRetry, parseAndClean } from '@/lib/ai-guards/json-retry'
 import { validateFullResearchBrief, validateInterviewScript } from '@/lib/ai-guards/brief-validator'
+import { validateScriptCritique } from '@/lib/ai-guards/script-critique-validator'
 import { validateStructuredAnalysis } from '@/lib/ai-guards/analysis-validator'
 import type {
   OpenAIAgentConfig,
   ConversationMessage,
   FullResearchBrief,
   InterviewScript,
+  ScriptCritique,
   GenerateStreamChunk,
 } from '@/types/index'
 
@@ -113,6 +115,20 @@ Output format:
 }
 
 Generate 8-10 questions that cover the riskiest assumptions from the Research Brief.`
+
+const SCRIPT_CRITIQUE_SYSTEM_PROMPT = `You are a critic evaluating whether an Interview Script truly tests the Research Brief's riskiest assumption and the assumption map.
+
+You will receive a Research Brief JSON object and an Interview Script JSON object. Your task is to decide whether brief.riskiestAssumption and each assumptionMap row are covered by at least one question in script.questions.
+
+Output ONLY valid JSON. No prose, no markdown fences, no explanation — just the JSON object.
+
+Output format:
+{
+  "alignmentScore": 0,
+  "missingCoverage": ["assumption text or assumption map description not covered by any question"]
+}
+
+Consider every assumptionMap row individually. If a question does not clearly test the assumption, mark it as missing coverage. Score alignment from 0 to 100 based on how well the script covers the riskiest assumption and assumption map rows.`
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -405,6 +421,73 @@ export async function POST(
         }
 
         if (parsedScript) {
+          controller.enqueue(encodeChunk({ stage: 'critique', content: 'Tutarlılık kontrol ediliyor...' }))
+
+          const parsedBriefJson = JSON.stringify(parsedBrief, null, 2)
+          const parsedScriptJson = JSON.stringify(parsedScript, null, 2)
+
+          const scriptCritique = await callWithJsonRetry<ScriptCritique>(
+            openai,
+            {
+              model: agentConfig.model?.name ?? 'gemini-flash-latest',
+              temperature: agentConfig.model?.temperature ?? 0.3,
+              max_tokens: agentConfig.model?.max_tokens ?? 500,
+              stream: false,
+              messages: [
+                { role: 'system', content: SCRIPT_CRITIQUE_SYSTEM_PROMPT },
+                {
+                  role: 'user',
+                  content: `Research Brief:\n${parsedBriefJson}\n\nInterview Script:\n${parsedScriptJson}`,
+                },
+              ],
+            },
+            validateScriptCritique,
+            '[Generate/critique]'
+          )
+
+          if (scriptCritique && scriptCritique.alignmentScore < 70 && scriptCritique.missingCoverage.length > 0) {
+            console.warn(
+              `[Generate/critique] Düşük alignmentScore=${scriptCritique.alignmentScore}, retry script üretimi başlıyor. Missing coverage: ${scriptCritique.missingCoverage.join('; ')}`
+            )
+            controller.enqueue(
+              encodeChunk({
+                stage: 'interview_script',
+                content: 'Script eksik kapsam nedeniyle yeniden üretiliyor...',
+              })
+            )
+
+            const retryScript = await callWithJsonRetry<InterviewScript>(
+              openai,
+              {
+                model: agentConfig.model?.name ?? 'gemini-flash-latest',
+                temperature: agentConfig.model?.temperature ?? 0.4,
+                max_tokens: agentConfig.model?.max_tokens ?? 2000,
+                stream: false,
+                messages: [
+                  { role: 'system', content: INTERVIEW_SCRIPT_SYSTEM_PROMPT },
+                  {
+                    role: 'user',
+                    content: `Research Brief:\n${parsedBriefJson}\n\nProduct idea: ${project.product_idea}\n\nThe previous Interview Script did not sufficiently cover these assumptions:\n${scriptCritique.missingCoverage.map((item) => `- ${item}`).join('\n')}\n\nUpdate the Interview Script so it covers these missing assumptions. Output ONLY valid JSON in the same Interview Script format.`,
+                  },
+                ],
+              },
+              validateInterviewScript,
+              '[Generate/script/retry]'
+            )
+
+            if (retryScript) {
+              parsedScript = retryScript
+              controller.enqueue(
+                encodeChunk({
+                  stage: 'interview_script',
+                  content: 'Yeniden üretilen script hazır. Eksik kapsam kapatıldı.',
+                })
+              )
+            } else {
+              console.warn('[Generate/critique] Retry edilen script üretimi başarısız oldu. Orijinal script kullanılacak.')
+            }
+          }
+
           try {
             await db
               .update(projects)

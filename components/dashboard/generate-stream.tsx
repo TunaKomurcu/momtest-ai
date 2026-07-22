@@ -33,6 +33,7 @@ export function GenerateStream({
   const [brief, setBrief] = useState('')
   const [script, setScript] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [stageMessage, setStageMessage] = useState<string | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -95,10 +96,12 @@ export function GenerateStream({
             continue
           }
 
-          if (chunk.stage === 'research_brief') {
+              if (chunk.stage === 'research_brief') {
             setBrief((prev) => prev + chunk.content)
           } else if (chunk.stage === 'interview_script') {
             setScript((prev) => prev + chunk.content)
+          } else if (chunk.stage === 'critique') {
+            setStageMessage(chunk.content)
           } else if (chunk.stage === 'error') {
             setErrorMessage(chunk.content || 'Üretim sırasında hata oluştu.')
             setState('error')
@@ -129,6 +132,11 @@ export function GenerateStream({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
+      {stageMessage ? (
+        <div className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-foreground">
+          {stageMessage}
+        </div>
+      ) : null}
       <div className="flex items-center justify-between gap-3">
         <div className="flex flex-col">
           <h3 className="text-sm font-semibold">Araştırma Üretimi</h3>

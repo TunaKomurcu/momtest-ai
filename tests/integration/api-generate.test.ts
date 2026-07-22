@@ -137,8 +137,8 @@ describe('decodeChunk — encode/decode round-trip', () => {
     expect(decodeChunk(bad)).toBeNull()
   })
 
-  it('round-trips all 4 stage values', () => {
-    const stages: GenerateStreamChunk['stage'][] = ['research_brief', 'interview_script', 'done', 'error']
+  it('round-trips all 5 stage values', () => {
+    const stages: GenerateStreamChunk['stage'][] = ['research_brief', 'interview_script', 'critique', 'done', 'error']
     stages.forEach((stage) => {
       const chunk: GenerateStreamChunk = { stage, content: `content-${stage}` }
       const decoded = decodeChunk(encodeChunk(chunk))
