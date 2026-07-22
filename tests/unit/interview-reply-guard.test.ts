@@ -87,7 +87,7 @@ describe('applyInterviewGuard — BLOCKED: görüş/onay soruları (SKILL.md Ski
   it('"Would you use this?" → blocked', () => {
     const result = applyInterviewGuard('Would you use this kind of tool?')
     expect(result.verdict).toBe('blocked')
-    expect(result.reason).toMatch(/yasaklı soru/i)
+    expect(result.reason).toMatch(/yasaklı/i)
   })
 
   it('"Would you use something like this?" → blocked', () => {

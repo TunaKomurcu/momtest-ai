@@ -10,6 +10,7 @@ import {
   applyInterviewGuard,
   checkInterviewReplyIsolated,
   INTERVIEW_FALLBACK_MESSAGE,
+  MAX_INTERVIEW_GUARD_RETRIES,
 } from '@/lib/ai-guards/interview-reply-guard'
 import {
   detectInjectionAttempt,
@@ -361,71 +362,96 @@ ${scriptContext}
 
   // ---------------------------------------------------------------------------
   // Guard — Katman 1 (kural filtresi) + Katman 2 (isolated LLM check)
-  // Kapanış mesajları guard'a girmez: isComplete && isClosingMessage durumunda
-  // guard atlanır; temizlenmiş cevaplar zaten kurallara uygun.
+  // Kapanış mesajları guard'a girmez.
+  // Her iki dal (BLOCKED + RISKY) aynı MAX_INTERVIEW_GUARD_RETRIES döngüsünü kullanır.
+  // Retry çıktısı hem kural filtresinden hem isolated check'ten geçmeden kabul edilmez.
   // ---------------------------------------------------------------------------
   if (!isClosingMessage(agentReply)) {
-    const guardResult = applyInterviewGuard(agentReply)
+    const initialGuard = applyInterviewGuard(agentReply)
 
-    if (guardResult.verdict === 'blocked') {
-      console.warn('[Interview/guard] BLOCKED —', guardResult.reason, '— retry başlıyor')
+    console.log('[Interview/guard] orijinal cevap:', {
+      verdict:       initialGuard.verdict,
+      flags:         'flags' in initialGuard ? initialGuard.flags : [],
+      reason:        'reason' in initialGuard ? initialGuard.reason : undefined,
+      wordCount:     agentReply.trim().split(/\s+/).length,
+      questionCount: (agentReply.match(/\?/g) ?? []).length,
+      fullText:      agentReply,
+    })
 
-      // 1 retry
-      try {
-        const retryCompletion = await openai.chat.completions.create({
-          model: agentConfig.model?.name ?? 'gemini-flash-latest',
-          temperature: agentConfig.model?.temperature ?? 0.7,
-          max_tokens: agentConfig.model?.max_tokens ?? 512,
-          messages: llmMessages,
-        })
-        const retryReply = retryCompletion.choices[0]?.message?.content?.trim() ?? ''
-        const retryGuard = retryReply ? applyInterviewGuard(retryReply) : { verdict: 'blocked' as const }
+    let needsRetry = false
 
-        if (retryReply && retryGuard.verdict !== 'blocked') {
-          agentReply = retryReply
-          console.warn('[Interview/guard] Retry başarılı.')
-        } else {
-          console.warn('[Interview/guard] Retry da blocked — fallback mesaj kullanılıyor')
-          agentReply = INTERVIEW_FALLBACK_MESSAGE
-        }
-      } catch (err) {
-        console.error('[Interview/guard] Retry LLM çağrısı başarısız:', err)
-        agentReply = INTERVIEW_FALLBACK_MESSAGE
+    if (initialGuard.verdict === 'blocked') {
+      console.warn('[Interview/guard] BLOCKED —', initialGuard.reason, '— retry döngüsü başlıyor')
+      needsRetry = true
+    } else if (initialGuard.verdict === 'risky') {
+      console.warn('[Interview/guard] RISKY — flags:', initialGuard.flags, '— isolated check başlıyor')
+      const initialCheck = await checkInterviewReplyIsolated(agentReply, openai, agentConfig.model?.name ?? 'gemini-flash-latest')
+      console.log('[Interview/guard] isolated check sonucu (orijinal):', initialCheck)
+      if (initialCheck.verdict === 'fail') {
+        console.warn('[Interview/guard] Isolated check FAIL —', initialCheck.reason, '— retry döngüsü başlıyor')
+        needsRetry = true
       }
-    } else if (guardResult.verdict === 'risky') {
-      console.warn('[Interview/guard] RISKY — flags:', guardResult.flags, '— isolated check başlıyor')
+    }
 
-      const checkResult = await checkInterviewReplyIsolated(
-        agentReply,
-        openai,
-        agentConfig.model?.name ?? 'gemini-flash-latest'
-      )
+    if (needsRetry) {
+      let accepted = false
 
-      if (checkResult.verdict === 'fail') {
-        console.warn('[Interview/guard] Isolated check FAIL —', checkResult.reason, '— retry başlıyor')
+      for (let attempt = 1; attempt <= MAX_INTERVIEW_GUARD_RETRIES; attempt++) {
+        console.warn(`[Interview/guard] Retry denemesi ${attempt}/${MAX_INTERVIEW_GUARD_RETRIES}`)
 
+        let candidateReply = ''
         try {
           const retryCompletion = await openai.chat.completions.create({
-            model: agentConfig.model?.name ?? 'gemini-flash-latest',
+            model:       agentConfig.model?.name ?? 'gemini-flash-latest',
             temperature: agentConfig.model?.temperature ?? 0.7,
-            max_tokens: agentConfig.model?.max_tokens ?? 512,
-            messages: llmMessages,
+            max_tokens:  agentConfig.model?.max_tokens ?? 512,
+            messages:    llmMessages,
           })
-          const retryReply = retryCompletion.choices[0]?.message?.content?.trim() ?? ''
-          if (retryReply) {
-            agentReply = retryReply
-            console.warn('[Interview/guard] Retry sonrası yeni cevap kabul edildi.')
-          } else {
-            agentReply = INTERVIEW_FALLBACK_MESSAGE
-          }
+          candidateReply = retryCompletion.choices[0]?.message?.content?.trim() ?? ''
         } catch (err) {
-          console.error('[Interview/guard] Retry LLM çağrısı başarısız:', err)
-          agentReply = INTERVIEW_FALLBACK_MESSAGE
+          console.error(`[Interview/guard] Retry ${attempt} LLM çağrısı başarısız:`, err)
+          break
         }
+
+        if (!candidateReply) {
+          console.warn(`[Interview/guard] Retry ${attempt} boş cevap döndürdü`)
+          continue
+        }
+
+        // Adım 1: kural filtresi
+        const retryGuard = applyInterviewGuard(candidateReply)
+        console.log(`[Interview/guard] Retry ${attempt} kural filtresi:`, {
+          verdict:       retryGuard.verdict,
+          flags:         'flags' in retryGuard ? retryGuard.flags : [],
+          wordCount:     candidateReply.trim().split(/\s+/).length,
+          questionCount: (candidateReply.match(/\?/g) ?? []).length,
+          fullText:      candidateReply,
+        })
+
+        if (retryGuard.verdict === 'blocked') {
+          console.warn(`[Interview/guard] Retry ${attempt} BLOCKED — bir sonraki denemeye geçiliyor`)
+          continue
+        }
+
+        // Adım 2: isolated LLM check — clean ve risky için de zorunlu
+        const retryCheck = await checkInterviewReplyIsolated(candidateReply, openai, agentConfig.model?.name ?? 'gemini-flash-latest')
+        console.log(`[Interview/guard] Retry ${attempt} isolated check:`, retryCheck)
+
+        if (retryCheck.verdict === 'pass') {
+          agentReply = candidateReply
+          accepted = true
+          console.log(`[Interview/guard] Retry ${attempt} KABUL EDİLDİ (kural: ${retryGuard.verdict}, check: pass)`)
+          break
+        }
+
+        console.warn(`[Interview/guard] Retry ${attempt} isolated check FAIL — ${retryCheck.reason}`)
       }
-      // pass → agentReply değişmez
+
+      if (!accepted) {
+        console.warn(`[Interview/guard] ${MAX_INTERVIEW_GUARD_RETRIES} retry sonrası kabul edilebilir cevap üretilemedi — fallback kullanılıyor`)
+        agentReply = INTERVIEW_FALLBACK_MESSAGE
+      }
     }
-    // clean → agentReply değişmez
   }
 
   // --- Mesajları kaydet ---
