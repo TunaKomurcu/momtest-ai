@@ -287,7 +287,12 @@ export async function POST(
     try {
       await db
         .update(interviews)
-        .set({ status: 'ongoing', participant_name: participantName, updated_at: new Date() })
+        .set({
+          status: 'ongoing',
+          participant_name: participantName,
+          participant_role: body.participant_role,
+          updated_at: new Date()
+        })
         .where(eq(interviews.id, interviewId))
     } catch (err) {
       console.error('[Interview] Interview başlatma güncellemesi başarısız:', err)

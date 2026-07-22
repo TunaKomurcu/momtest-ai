@@ -30,6 +30,15 @@ export default async function ReportPage({
 
   const interview = interviewRows[0]
 
+  console.log('[ReportPage] Interview data:', {
+    id: interview?.id,
+    has_analysis_json: !!interview?.analysis_json,
+    analysis_json_keys: interview?.analysis_json ? Object.keys(interview.analysis_json as Record<string, unknown>) : [],
+    has_signal_score: !!interview?.signal_score,
+    participant_role: interview?.participant_role,
+    analyzed_at: interview?.analyzed_at,
+  })
+
   if (!interview || !interview.evidence_report) {
     redirect('/dashboard')
   }

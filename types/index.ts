@@ -96,6 +96,7 @@ export interface OpenAIAgentConfig {
 export interface InterviewRequestBody {
   message: string
   participant_name: string
+  participant_role?: string
 }
 
 /** POST /api/interview/[interviewId] başarılı yanıt datası */

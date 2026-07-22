@@ -79,19 +79,70 @@ export function validateStructuredAnalysis(parsed: unknown): ValidationResult<St
     }
   }
 
-  // strongEvidence — array (boş olabilir)
+  // strongEvidence — array of { quote, message_id, whyItMatters } (boş olabilir)
   if (!isPlainArray(p.strongEvidence)) {
     issues.push('strongEvidence must be an array')
+  } else {
+    p.strongEvidence.forEach((item, idx) => {
+      if (typeof item !== 'object' || item === null) {
+        issues.push(`strongEvidence[${idx}] must be an object`)
+        return
+      }
+      const e = item as Record<string, unknown>
+      if (!isNonEmptyString(e.quote)) {
+        issues.push(`strongEvidence[${idx}].quote must be a non-empty string`)
+      }
+      if (typeof e.message_id !== 'string') {
+        issues.push(`strongEvidence[${idx}].message_id must be a string`)
+      }
+      if (!isNonEmptyString(e.whyItMatters)) {
+        issues.push(`strongEvidence[${idx}].whyItMatters must be a non-empty string`)
+      }
+    })
   }
 
-  // mediumEvidence — array (boş olabilir)
+  // mediumEvidence — array of { quote, message_id, context } (boş olabilir)
   if (!isPlainArray(p.mediumEvidence)) {
     issues.push('mediumEvidence must be an array')
+  } else {
+    p.mediumEvidence.forEach((item, idx) => {
+      if (typeof item !== 'object' || item === null) {
+        issues.push(`mediumEvidence[${idx}] must be an object`)
+        return
+      }
+      const e = item as Record<string, unknown>
+      if (!isNonEmptyString(e.quote)) {
+        issues.push(`mediumEvidence[${idx}].quote must be a non-empty string`)
+      }
+      if (typeof e.message_id !== 'string') {
+        issues.push(`mediumEvidence[${idx}].message_id must be a string`)
+      }
+      if (!isNonEmptyString(e.context)) {
+        issues.push(`mediumEvidence[${idx}].context must be a non-empty string`)
+      }
+    })
   }
 
-  // weakEvidence — array (boş olabilir)
+  // weakEvidence — array of { quote, message_id, whyItIsWeak } (boş olabilir)
   if (!isPlainArray(p.weakEvidence)) {
     issues.push('weakEvidence must be an array')
+  } else {
+    p.weakEvidence.forEach((item, idx) => {
+      if (typeof item !== 'object' || item === null) {
+        issues.push(`weakEvidence[${idx}] must be an object`)
+        return
+      }
+      const e = item as Record<string, unknown>
+      if (!isNonEmptyString(e.quote)) {
+        issues.push(`weakEvidence[${idx}].quote must be a non-empty string`)
+      }
+      if (typeof e.message_id !== 'string') {
+        issues.push(`weakEvidence[${idx}].message_id must be a string`)
+      }
+      if (!isNonEmptyString(e.whyItIsWeak)) {
+        issues.push(`weakEvidence[${idx}].whyItIsWeak must be a non-empty string`)
+      }
+    })
   }
 
   // negativeEvidence — array of { quote, message_id, whyItIsNegative } (boş olabilir)

@@ -151,10 +151,35 @@ export function EvidenceReport({
   const nextStep  = analysisJson ? analysisJson.recommendedNextStep   : parseNextStepFallback(interview.evidence_report)
   const openQuestions: string[] = analysisJson?.openQuestions ?? []
 
-  const signalScore = useMemo(
-    () => parseSignalScore(interview.signal_score),
-    [interview.signal_score]
-  )
+  const signalScore = useMemo(() => {
+    // Prefer analysis_json for full evidence with explanations (whyItMatters, context, whyItIsWeak)
+    if (analysisJson) {
+      return {
+        strong: analysisJson.strongEvidence.map((e): StrongSignalEntry => ({
+          quote: e.quote,
+          message_id: e.message_id,
+          whyItMatters: e.whyItMatters,
+        })),
+        medium: analysisJson.mediumEvidence.map((e): MediumSignalEntry => ({
+          quote: e.quote,
+          message_id: e.message_id,
+          context: e.context,
+        })),
+        weak: analysisJson.weakEvidence.map((e): WeakSignalEntry => ({
+          quote: e.quote,
+          message_id: e.message_id,
+          whyItIsWeak: e.whyItIsWeak,
+        })),
+        negative: analysisJson.negativeEvidence.map((e): NegativeSignalEntry => ({
+          quote: e.quote,
+          message_id: e.message_id,
+          whyItIsNegative: e.whyItIsNegative,
+        })),
+      }
+    }
+    // Fallback to signal_score for backward compatibility
+    return parseSignalScore(interview.signal_score)
+  }, [analysisJson, interview.signal_score])
 
   const decisionMeta =
     DECISION_META[decision.toLowerCase()] ?? DECISION_META['continue discovery']
@@ -271,12 +296,12 @@ export function EvidenceReport({
         <div className={cn('grid gap-3', isMobile ? 'grid-cols-1' : 'grid-cols-2')}>
 
           {/* Sinyal boyutları — analysis_json varsa */}
-          {analysisJson?.signalScore && (
+          {analysisJson && (
             <SignalDimensionsGrid
-              problemEvidence={analysisJson.signalScore.problemEvidence}
-              urgency={analysisJson.signalScore.urgency}
-              workaroundEvidence={analysisJson.signalScore.workaroundEvidence}
-              budgetOrCommitment={analysisJson.signalScore.budgetOrCommitment}
+              problemEvidence={analysisJson.signalScore?.problemEvidence}
+              urgency={analysisJson.signalScore?.urgency}
+              workaroundEvidence={analysisJson.signalScore?.workaroundEvidence}
+              budgetOrCommitment={analysisJson.signalScore?.budgetOrCommitment}
             />
           )}
 
