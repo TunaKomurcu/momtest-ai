@@ -12,6 +12,7 @@ import { InterviewManager } from '@/components/dashboard/interview-manager'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Button } from '@/components/ui/button'
 import {
   Empty,
   EmptyDescription,
@@ -86,6 +87,7 @@ function ProjectBody({
   project: DashboardProject
   onStatusChange: (projectId: string, status: ProjectStatus) => void
 }) {
+  const [createInterview, setCreateInterview] = useState<(() => Promise<void>) | null>(null)
   const [intakeComplete, setIntakeComplete] = useState(
     () => project.status !== 'intake'
   )
@@ -189,6 +191,24 @@ function ProjectBody({
             {intakeComplete && (
               <>
                 <Separator />
+                <div className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <h2 className="text-sm font-semibold">Mülakat Bağlantısı Oluştur</h2>
+                      <p className="text-muted-foreground text-xs text-balance">
+                        Bu proje için yeni bir katılımcı bağlantısı oluşturun.
+                      </p>
+                    </div>
+                    <Button
+                      onClick={() => void createInterview?.()}
+                      disabled={!createInterview}
+                      size="sm"
+                    >
+                      Yeni Bağlantı
+                    </Button>
+                  </div>
+                </div>
+                <Separator />
                 {/* GenerateStream: brief/script üretimi */}
                 <GenerateStream
                   projectId={project.id}
@@ -223,6 +243,8 @@ function ProjectBody({
                     <InterviewManager
                       projectId={project.id}
                       onStatusChange={onStatusChange}
+                      showHeader={false}
+                      onCreateReady={setCreateInterview}
                     />
                   </>
                 )}

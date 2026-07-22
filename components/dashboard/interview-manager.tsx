@@ -40,9 +40,13 @@ const STATUS_META = {
 export function InterviewManager({
   projectId,
   onStatusChange,
+  showHeader = true,
+  onCreateReady,
 }: {
   projectId: string
   onStatusChange?: (projectId: string, status: ProjectStatus) => void
+  showHeader?: boolean
+  onCreateReady?: (createFn: () => Promise<void>) => void
 }) {
   const [interviewList, setInterviewList] = useState<InterviewSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -83,7 +87,7 @@ export function InterviewManager({
       const payload = (await res.json()) as ApiResponse<InterviewSummary>
 
       if (!res.ok || payload.error || !payload.data) {
-        setError('Mülakat bağlantısı oluşturulamadı.')
+        setError(payload.error ?? 'Mülakat bağlantısı oluşturulamadı.')
       } else {
         setInterviewList((prev) => [payload.data, ...prev])
         onStatusChange?.(projectId, 'interviewing')
@@ -94,6 +98,12 @@ export function InterviewManager({
       setCreating(false)
     }
   }, [projectId, onStatusChange])
+
+  useEffect(() => {
+    if (onCreateReady) {
+      onCreateReady(createInterview)
+    }
+  }, [createInterview, onCreateReady])
 
   const analyzeInterview = useCallback(
     async (interviewId: string) => {
@@ -132,30 +142,34 @@ export function InterviewManager({
   }, [])
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-col gap-4 overflow-hidden rounded-xl border bg-card p-5">
       {/* Proje bazlı konsolide özet — en az 1 analiz varsa görünür */}
       {!loading && <ProjectSummaryBar interviews={interviewList} />}
 
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-col">
-          <h3 className="text-sm font-semibold">Mülakat Bağlantıları</h3>
-          <p className="text-muted-foreground text-xs text-balance">
-            Her katılımcı için bir bağlantı oluşturun ve paylaşın.
-          </p>
+      {showHeader && (
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm shadow-black/5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-col gap-1">
+              <h3 className="text-sm font-semibold">Mülakat Bağlantıları</h3>
+              <p className="text-muted-foreground text-xs text-balance">
+                Her katılımcı için bir bağlantı oluşturun ve paylaşın.
+              </p>
+            </div>
+            <Button
+              onClick={() => void createInterview()}
+              disabled={creating}
+              size="sm"
+            >
+              {creating ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <Plus data-icon="inline-start" className="size-4" />
+              )}
+              {creating ? 'Oluşturuluyor...' : 'Yeni Bağlantı'}
+            </Button>
+          </div>
         </div>
-        <Button
-          onClick={() => void createInterview()}
-          disabled={creating}
-          size="sm"
-        >
-          {creating ? (
-            <Spinner data-icon="inline-start" />
-          ) : (
-            <Plus data-icon="inline-start" className="size-4" />
-          )}
-          {creating ? 'Oluşturuluyor...' : 'Yeni Bağlantı'}
-        </Button>
-      </div>
+      )}
 
       {error && (
         <p className="text-destructive text-xs">{error}</p>
@@ -166,7 +180,7 @@ export function InterviewManager({
           <Spinner className="size-5" />
         </div>
       ) : interviewList.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 py-8 text-center">
+        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-muted/10 py-8 text-center">
           <Users className="text-muted-foreground size-8" />
           <p className="text-muted-foreground text-sm">
             Henüz mülakat bağlantısı yok.

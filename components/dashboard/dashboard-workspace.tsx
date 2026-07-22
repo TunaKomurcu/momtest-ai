@@ -17,14 +17,17 @@ export function DashboardWorkspace({
 }) {
   const [projects, setProjects] = useState<DashboardProject[]>(initialProjects)
 
-  // Sayfa yenilenince son seçili projeyi hatırla
-  const [selectedId, setSelectedId] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return initialProjects[0]?.id ?? null
+  // Başlangıçta server ve client aynı render etsin: ilk proje seçili.
+  const [selectedId, setSelectedId] = useState<string | null>(initialProjects[0]?.id ?? null)
+
+  // Client'ta mount olduktan sonra localStorage'dan son seçili projeyi oku.
+  // Server'daki render ile eşleşmesi için bu okuma useEffect içinde yapılır.
+  useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY)
-    // Kayıtlı ID hâlâ mevcut projeler arasında mı?
-    if (saved && initialProjects.some((p) => p.id === saved)) return saved
-    return initialProjects[0]?.id ?? null
-  })
+    if (saved && initialProjects.some((p) => p.id === saved)) {
+      setSelectedId(saved)
+    }
+  }, [initialProjects])
 
   // selectedId değişince localStorage'a kaydet
   useEffect(() => {

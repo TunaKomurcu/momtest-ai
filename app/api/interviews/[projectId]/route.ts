@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db/index'
 import { interviews } from '@/lib/db/schema'
@@ -69,13 +70,17 @@ export async function POST(
   }
 
   try {
+    const interviewId = randomUUID()
+    const values = {
+      id: interviewId,
+      project_id: projectId,
+      participant_name: 'Katılımcı' as const,
+      status: 'pending' as const,
+    }
+
     const rows = await db
       .insert(interviews)
-      .values({
-        project_id: projectId,
-        participant_name: 'Katılımcı',
-        status: 'pending',
-      })
+      .values(values)
       .returning({
         id: interviews.id,
         participant_name: interviews.participant_name,
@@ -85,10 +90,27 @@ export async function POST(
         signal_score: interviews.signal_score,
       })
 
-    const newInterview = rows[0]
+    let newInterview = rows[0]
 
     if (!newInterview) {
-      throw new Error('Insert başarısız — returning boş.')
+      // Drizzle / Postgres returning bazen boş dönebilir; ek bir select ile kesinleştir.
+      const fallbackRows = await db
+        .select({
+          id: interviews.id,
+          participant_name: interviews.participant_name,
+          status: interviews.status,
+          created_at: interviews.created_at,
+          evidence_report: interviews.evidence_report,
+          signal_score: interviews.signal_score,
+        })
+        .from(interviews)
+        .where(eq(interviews.id, interviewId))
+
+      newInterview = fallbackRows[0]
+    }
+
+    if (!newInterview) {
+      throw new Error('Insert başarısız — sonuç alınamadı.')
     }
 
     return NextResponse.json(
@@ -96,9 +118,23 @@ export async function POST(
       { status: 201 }
     )
   } catch (err) {
-    console.error('[Interviews POST] Mülakat oluşturulamadı:', err)
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    console.error('[Interviews POST] Mülakat oluşturulamadı:', {
+      projectId,
+      values: {
+        project_id: projectId,
+        participant_name: 'Katılımcı',
+        status: 'pending',
+      },
+      error: errorMessage,
+      stack: err instanceof Error ? err.stack : undefined,
+    })
+
     return NextResponse.json(
-      { data: null, error: 'Mülakat oluşturulamadı.' },
+      {
+        data: null,
+        error: `Veritabanı hatası: ${errorMessage}`,
+      },
       { status: 500 }
     )
   }
