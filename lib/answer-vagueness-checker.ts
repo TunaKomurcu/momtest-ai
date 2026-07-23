@@ -98,8 +98,9 @@ function isCounterQuestion(answer: string): boolean {
 /**
  * Fast heuristic check for likely vague answers.
  * Returns true if answer is suspiciously vague, false if likely concrete.
+ * @param logPrefix - Optional logging prefix (default: '[Interview/vagueness]')
  */
-export function isLikelyVague(answer: string): boolean {
+export function isLikelyVague(answer: string, logPrefix: string = '[Interview/vagueness]'): boolean {
   const trimmed = answer.trim()
 
   // Very short answers
@@ -107,24 +108,24 @@ export function isLikelyVague(answer: string): boolean {
     // Check if it's a vague keyword
     const lower = trimmed.toLowerCase()
     if (VAGUE_KEYWORDS.has(lower)) {
-      console.log('[Interview/vagueness] Heuristic flagged — reason: very short vague keyword')
+      console.log(`${logPrefix} Heuristic flagged — reason: very short vague keyword`)
       return true
     }
 
     // Even if short, check for concreteness signals
     if (hasConcretenessSignals(trimmed)) {
-      console.log('[Interview/vagueness] Heuristic cleared — reason: short but has concreteness signals')
+      console.log(`${logPrefix} Heuristic cleared — reason: short but has concreteness signals`)
       return false
     }
 
     // Very short without concreteness signals is likely vague
-    console.log('[Interview/vagueness] Heuristic flagged — reason: very short without concreteness signals')
+    console.log(`${logPrefix} Heuristic flagged — reason: very short without concreteness signals`)
     return true
   }
 
   // Counter-question (user asking instead of answering)
   if (isCounterQuestion(trimmed)) {
-    console.log('[Interview/vagueness] Heuristic flagged — reason: counter-question detected')
+    console.log(`${logPrefix} Heuristic flagged — reason: counter-question detected`)
     return true
   }
 
@@ -139,12 +140,14 @@ export function isLikelyVague(answer: string): boolean {
 /**
  * Isolated LLM check to determine if an answer is vague.
  * Uses a separate call with a clear auditor role.
+ * @param logPrefix - Optional logging prefix (default: '[Interview/vagueness]')
  */
 export async function checkAnswerIsVague(
   question: string,
   answer: string,
   openai?: OpenAI,
-  agentConfig?: Partial<OpenAIAgentConfig>
+  agentConfig?: Partial<OpenAIAgentConfig>,
+  logPrefix: string = '[Interview/vagueness]'
 ): Promise<VaguenessCheckResult> {
   const config = agentConfig ?? loadAgentConfig()
   const client = openai ?? new OpenAI({
@@ -197,17 +200,17 @@ Is this answer concrete or vague? Respond with JSON only.`
     // Parse JSON response
     const jsonMatch = content.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
-      console.warn('[Interview/vagueness] Isolated check failed to parse JSON, defaulting to not vague')
+      console.warn(`${logPrefix} Isolated check failed to parse JSON, defaulting to not vague`)
       return { isVague: false, reason: 'Parse error - defaulting to not vague' }
     }
 
     const result = JSON.parse(jsonMatch[0]) as VaguenessCheckResult
     
-    console.log(`[Interview/vagueness] Isolated check: vague=${result.isVague}, reason=${result.reason}`)
+    console.log(`${logPrefix} Isolated check: vague=${result.isVague}, reason=${result.reason}`)
     
     return result
   } catch (err) {
-    console.error('[Interview/vagueness] Isolated check LLM call failed:', err)
+    console.error(`${logPrefix} Isolated check LLM call failed:`, err)
     // Graceful degradation: if check fails, assume not vague to avoid blocking
     return { isVague: false, reason: 'LLM check failed - defaulting to not vague' }
   }

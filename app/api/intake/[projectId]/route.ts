@@ -12,6 +12,10 @@ import {
   INTAKE_FALLBACK_MESSAGE,
   MAX_GUARD_RETRIES,
 } from '@/lib/ai-guards/intake-reply-guard'
+import {
+  isLikelyVague,
+  checkAnswerIsVague,
+} from '@/lib/answer-vagueness-checker'
 import type {
   IntakeRequestBody,
   IntakeResponseData,
@@ -21,6 +25,12 @@ import type {
   IntakeCompletionStatus,
   ResearchBrief,
 } from '@/types/index'
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const MAX_PROBES_PER_QUESTION = 2
 
 // ---------------------------------------------------------------------------
 // Rate limiting — max 20 req/min per IP
@@ -134,6 +144,32 @@ function detectCompletionStatus(messages: ConversationMessage[]): IntakeCompleti
   }
 }
 
+// Count how many probe questions have been asked recently
+// Probe questions typically ask for specific examples, last time, concrete details
+function countRecentProbes(history: ConversationMessage[]): number {
+  const probeIndicators = [
+    /last time (that|this|it)/i,
+    /specific example of/i,
+    /be more specific/i,
+    /can you give (me )?a (specific )?example/i,
+    /what (exactly )?happened/i,
+    /when (exactly )?did (that|this|it)/i,
+    /tell me (more )?about (the )?last/i,
+  ]
+  
+  let probeCount = 0
+  const recentAgentMessages = history
+    .filter(m => m.sender === 'agent')
+    .slice(-5)
+  
+  for (const msg of recentAgentMessages) {
+    const isProbe = probeIndicators.some(pattern => pattern.test(msg.content))
+    if (isProbe) probeCount++
+  }
+  
+  return probeCount
+}
+
 // ---------------------------------------------------------------------------
 // POST handler
 // ---------------------------------------------------------------------------
@@ -222,6 +258,42 @@ export async function POST(
     baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
   })
 
+  // ---------------------------------------------------------------------------
+  // Vagueness check — PM cevabının somutluğunu değerlendir
+  // ---------------------------------------------------------------------------
+  let lastAgentQuestion = ''
+  let shouldProbe = false
+  let vaguenessReason = ''
+  let isProbe = false
+
+  if (history.length > 0) {
+    // Get the last agent message (the question the PM is answering)
+    const lastAgentMsg = history.filter(m => m.sender === 'agent').pop()
+    if (lastAgentMsg) {
+      lastAgentQuestion = lastAgentMsg.content
+
+      // Heuristic check
+      const heuristicVague = isLikelyVague(userMessage, '[Intake/vagueness]')
+      if (heuristicVague) {
+        // Check if we've already hit the probe limit
+        const currentProbeCount = countRecentProbes(history)
+        
+        if (currentProbeCount >= MAX_PROBES_PER_QUESTION) {
+          console.log('[Intake/vagueness] Max probes reached, moving to next question')
+          shouldProbe = false
+        } else {
+          // Isolated LLM check
+          const vaguenessCheck = await checkAnswerIsVague(lastAgentQuestion, userMessage, openai, agentConfig, '[Intake/vagueness]')
+          if (vaguenessCheck.isVague) {
+            shouldProbe = true
+            vaguenessReason = vaguenessCheck.reason
+            isProbe = true
+          }
+        }
+      }
+    }
+  }
+
   const completionStatus = detectCompletionStatus([
     ...history,
     { sender: 'participant', content: userMessage },
@@ -242,9 +314,23 @@ export async function POST(
     .map((m, i) => `Q${i + 1}: ${m.content.slice(0, 120)}`)
     .join('\n')
 
+  // Inject probe instruction if PM's answer was vague
+  let probeInstruction = ''
+  if (shouldProbe) {
+    console.log(`[Intake/vagueness] Probe question will be generated, reason=${vaguenessReason}`)
+    probeInstruction = `
+
+IMPORTANT OVERRIDE: The PM's last answer was vague or not concrete (reason: ${vaguenessReason}).
+DO NOT proceed to the next question in your 8-question sequence.
+Instead, ask a specific follow-up (probe) question to get a concrete example, specific details, or a real scenario.
+Ask for a specific instance: "Can you give me a specific example of when this happens?"
+This probe question does NOT count toward your 8-question limit.
+`
+  }
+
   const contextNote = `
 [CONVERSATION STATUS — DO NOT IGNORE]
-- Questions asked so far: ${history.filter((m) => m.sender === 'agent').length} out of 8 maximum
+- Questions asked so far: ${history.filter((m) => m.sender === 'agent').length} out of 8 maximum${isProbe ? ' (this probe does not count)' : ''}
 - Product idea received: ${completionStatus.hasProductIdea ? 'YES' : 'NO'}
 - Target segment identified: ${completionStatus.hasTargetSegment ? 'YES' : 'NO'}
 - Riskiest assumption identified: ${completionStatus.hasRiskiestAssumption ? 'YES' : 'NO'}
@@ -253,6 +339,7 @@ ${askedQuestions ? `\nQuestions already asked (DO NOT repeat these):\n${askedQue
 
 [LANGUAGE]
 ${languageInstruction}
+${probeInstruction}
 `
 
   const openaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
