@@ -8,7 +8,7 @@ AI-powered customer discovery platform built on [Mom Test](http://momtestbook.co
 
 1. **PM Intake** — An AI architect asks up to 8 questions to extract the product idea, target segment, and riskiest assumption from the PM.
 2. **Research Brief + Interview Script** — Generates a structured research brief (assumption map, evidence criteria, forbidden questions) and a Mom Test–compliant interview script via LLM streaming.
-3. **Participant Interview** — Shareable public link opens a chat interface where the participant is interviewed by an AI agent that never pitches the product.
+3. **Participant Interview** — Shareable public link opens a chat interface where the participant is interviewed by an AI agent that never pitches the product. Includes **Vagueness Guard** to detect vague answers and generate follow-up probes.
 4. **Evidence Analysis** — Transcripts are analyzed against the Mom Test evidence rubric. Every signal is classified as Strong / Medium / Weak / Negative and an evidence report with a decision recommendation is produced.
 5. **Dashboard** — PM can view all projects, briefs, interview history, consolidated signal summaries, and evidence reports. Briefs and scripts can be downloaded as JSON.
 
@@ -76,6 +76,9 @@ lib/
     json.ts                   parseJsonOutput (LLM fence stripping)
     sse.ts                    encodeChunk / decodeChunk
   project-status.ts           deriveProjectStatus state machine
+  answer-vagueness-checker.ts Vagueness Guard: heuristic + LLM hybrid vagueness detection
+  constants.ts                EVASIVE_PATTERNS, CONCRETENESS_PATTERNS
+  typo-tolerant-match.ts      Fuzzy matching for evasive phrases with typos
 
 types/
   database.types.ts           Drizzle InferSelectModel / InferInsertModel types

@@ -62,6 +62,11 @@ Participant opens link
     → interview.status set to "ongoing"
     → interview_script fetched and injected into LLM system prompt (invisible to participant)
   → conversation loop: participant sends messages, LLM responds
+    → Vagueness Guard checks each answer:
+        - Confidently concrete (HIGH) → No probe
+        - Confidently vague (HIGH) → Generate probe
+        - Ambiguous (LOW) → LLM check → Probe if vague
+        - Max 2 probes per question
   → closing conditions:
       - 10 meaningful replies (≥5 words each), OR
       - LLM sends closing phrase after ≥3 replies
@@ -127,6 +132,28 @@ Schema is defined in `lib/db/schema.ts` using Drizzle's `pgTable` builder and ap
 | POST | `/api/generate/[projectId]` | — | Stream research brief + script |
 | POST | `/api/interview/[interviewId]` | — | Participant interview turn (public) |
 | POST | `/api/analyze/[interviewId]` | — | Analyze completed interview |
+
+---
+
+## Vagueness Guard architecture
+
+The Vagueness Guard is a hybrid heuristic + LLM system that detects vague answers during participant interviews:
+
+```
+User Answer → isLikelyVagueWithConfidence() →
+  ├─ Confidently Concrete (HIGH) → No LLM, No Probe
+  ├─ Confidently Vague (HIGH) → No LLM, Probe  
+  └─ Ambiguous (LOW) → checkAnswerIsVague() (LLM) → Probe Decision
+```
+
+**Three-category logic:**
+- **Confidently Concrete:** Has concreteness signals (numbers, dates, time expressions) → `vague: false, confidence: 'high'`
+- **Confidently Vague:** Very short (<12 chars) + evasive pattern match → `vague: true, confidence: 'high'`
+- **Ambiguous:** Everything else → `vague: true, confidence: 'low'` → Isolated LLM check
+
+**Probe limit:** Max 2 probes per question (`MAX_PROBES_PER_QUESTION = 2`)
+
+**Implementation:** `lib/answer-vagueness-checker.ts` with typo-tolerant pattern matching via `lib/typo-tolerant-match.ts`
 
 ---
 

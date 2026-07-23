@@ -7,6 +7,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Vagueness Guard** — Hybrid heuristic + LLM system to detect vague answers during participant interviews
+- **`isLikelyVagueWithConfidence()`** — Three-category vagueness detection (confidently concrete/vague, ambiguous)
+- **`checkAnswerIsVague()`** — Isolated LLM check for ambiguous cases with meaning-only evaluation prompt
+- **Typo-tolerant pattern matching** — Fuzzy matching for evasive phrases via `lib/typo-tolerant-match.ts`
+- **Probe limit enforcement** — Max 2 probes per question to prevent infinite probing
+- **Vagueness logging** — Structured logging format: `[Vagueness] answer=vague, confidence=high/low, source=intake/interview, reason=...`
+
+### Changed
+- **PM Intake flow** — Integrated Vagueness Guard with confidence-based conditional LLM calling
+- **Participant Interview flow** — Integrated Vagueness Guard with confidence-based conditional LLM calling
+- **EVASIVE_PATTERNS usage** — Limited to very short (<12 chars) + clear match combination only
+- **Concreteness detection** — Removed length restriction, now purely based on concreteness signals
+
+### Fixed
+- **Word list over-reliance** — EVASIVE_PATTERNS no longer standalone decision-maker, only confirmation signal
+- **LLM call efficiency** — Reduced unnecessary LLM calls by using high-confidence heuristic decisions
+
 ---
 
 ## [0.6.0] — 2026-07
