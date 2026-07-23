@@ -30,6 +30,12 @@ import type {
 } from '@/types/index'
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const MAX_PROBES_PER_QUESTION = 2
+
+// ---------------------------------------------------------------------------
 // Rate limiting — public route: max 10 req/min per IP
 // ---------------------------------------------------------------------------
 
@@ -173,6 +179,39 @@ function isClosingMessage(text: string): boolean {
     /this has been really helpful/i.test(text) ||
     /have a great day/i.test(text)
   )
+}
+
+// Count how many probe questions have been asked for the current question order
+// Probe questions typically ask for specific examples, last time, concrete details
+function countRecentProbes(history: ConversationMessage[], currentOrder: number): number {
+  // Look at recent agent messages and count those that are likely probes
+  // Probe indicators: asking for "last time", "specific example", "concrete", "details"
+  // More specific patterns to avoid false positives on normal script questions
+  const probeIndicators = [
+    /last time (that|this|it)/i,
+    /specific example of/i,
+    /be more specific/i,
+    /can you give (me )?a (specific )?example/i,
+    /what (exactly )?happened/i,
+    /when (exactly )?did (that|this|it)/i,
+    /tell me (more )?about (the )?last/i,
+  ]
+  
+  // Count agent messages in history that match probe patterns
+  // We only care about probes for the current question order context
+  // Since we don't store order in messages, we'll count recent probes
+  // A simple heuristic: count recent agent messages that look like probes
+  let probeCount = 0
+  const recentAgentMessages = history
+    .filter(m => m.sender === 'agent')
+    .slice(-5) // Look at last 5 agent messages
+  
+  for (const msg of recentAgentMessages) {
+    const isProbe = probeIndicators.some(pattern => pattern.test(msg.content))
+    if (isProbe) probeCount++
+  }
+  
+  return probeCount
 }
 
 // ---------------------------------------------------------------------------
@@ -358,11 +397,19 @@ export async function POST(
       // Heuristic check
       const heuristicVague = isLikelyVague(userMessage)
       if (heuristicVague) {
-        // Isolated LLM check
-        const vaguenessCheck = await checkAnswerIsVague(lastAgentQuestion, userMessage, openai, agentConfig)
-        if (vaguenessCheck.isVague) {
-          shouldProbe = true
-          vaguenessReason = vaguenessCheck.reason
+        // Check if we've already hit the probe limit for this question
+        const currentProbeCount = countRecentProbes(history, meaningfulRepliesBeforeThis + 1)
+        
+        if (currentProbeCount >= MAX_PROBES_PER_QUESTION) {
+          console.log(`[Interview/vagueness] Max probes reached for order=${meaningfulRepliesBeforeThis + 1}, moving to next question`)
+          shouldProbe = false
+        } else {
+          // Isolated LLM check
+          const vaguenessCheck = await checkAnswerIsVague(lastAgentQuestion, userMessage, openai, agentConfig)
+          if (vaguenessCheck.isVague) {
+            shouldProbe = true
+            vaguenessReason = vaguenessCheck.reason
+          }
         }
       }
     }
