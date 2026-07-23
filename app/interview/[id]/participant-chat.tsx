@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
-import type { ApiResponse, InterviewResponseData } from '@/types/index'
+import type { ApiResponse, InterviewResponseData, ConversationMessage } from '@/types/index'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -23,17 +23,47 @@ function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-export function ParticipantChat({ interviewId }: { interviewId: string }) {
+export function ParticipantChat({ interviewId, initialParticipantName }: { interviewId: string; initialParticipantName?: string }) {
   const [phase, setPhase] = useState<Phase>('name')
   const [nameInput, setNameInput] = useState('')
-  const [participantName, setParticipantName] = useState('')
+  const [participantName, setParticipantName] = useState(initialParticipantName ?? '')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Load existing interview state on mount
+  useEffect(() => {
+    async function loadInterviewState() {
+      try {
+        // Load messages
+        const messagesRes = await fetch(`/api/messages/${interviewId}`)
+        if (messagesRes.ok) {
+          const payload = await messagesRes.json() as ApiResponse<ConversationMessage[]>
+          if (payload.data && payload.data.length > 0) {
+            // Convert to ChatMessage format
+            const chatMessages: ChatMessage[] = payload.data.map(m => ({
+              sender: m.sender,
+              content: m.content,
+              localId: makeId(),
+            }))
+            setMessages(chatMessages)
+            setPhase('chat')
+          }
+        }
+      } catch (err) {
+        console.error('[ParticipantChat] Failed to load interview state:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadInterviewState()
+  }, [interviewId])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -121,6 +151,18 @@ export function ParticipantChat({ interviewId }: { interviewId: string }) {
       e.preventDefault()
       void handleSend()
     }
+  }
+
+  // ── Loading state ───────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex min-h-screen flex-1 items-center justify-center p-6">
+        <div className="flex flex-col items-center gap-4">
+          <Spinner />
+          <p className="text-muted-foreground text-sm">Yükleniyor...</p>
+        </div>
+      </div>
+    )
   }
 
   // ── İsim giriş ekranı ────────────────────────────────────────────────────

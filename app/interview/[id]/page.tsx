@@ -12,7 +12,7 @@ export default async function InterviewPage({
   const { id } = await params
 
   const rows = await db
-    .select({ id: interviews.id, status: interviews.status })
+    .select({ id: interviews.id, status: interviews.status, participant_name: interviews.participant_name })
     .from(interviews)
     .where(eq(interviews.id, id))
     .limit(1)
@@ -52,7 +52,7 @@ export default async function InterviewPage({
 
   return (
     <main className="flex min-h-screen flex-col">
-      <ParticipantChat interviewId={id} />
+      <ParticipantChat interviewId={id} initialParticipantName={interview.participant_name ?? undefined} />
     </main>
   )
 }
