@@ -18,6 +18,7 @@ import {
 import {
   isLikelyVague,
   checkAnswerIsVague,
+  recordMaxProbeLimitHit,
 } from '@/lib/answer-vagueness-checker'
 import type {
   InterviewRequestBody,
@@ -402,6 +403,7 @@ export async function POST(
         
         if (currentProbeCount >= MAX_PROBES_PER_QUESTION) {
           console.log(`[Interview/vagueness] Max probes reached for order=${meaningfulRepliesBeforeThis + 1}, moving to next question`)
+          recordMaxProbeLimitHit()
           shouldProbe = false
         } else {
           // Isolated LLM check

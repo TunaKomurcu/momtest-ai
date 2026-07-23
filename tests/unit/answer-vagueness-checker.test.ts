@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { isLikelyVague } from '@/lib/answer-vagueness-checker'
+import { resetVaguenessGuardMetrics } from '@/lib/answer-vagueness-checker'
 import type { ConversationMessage } from '@/types/index'
 
 // Import the countRecentProbes function from the route for testing
@@ -29,6 +30,9 @@ function countRecentProbes(history: ConversationMessage[]): number {
 }
 
 describe('answer-vagueness-checker', () => {
+  beforeEach(() => {
+    resetVaguenessGuardMetrics()
+  })
   describe('isLikelyVague', () => {
     it('should flag very short vague keywords', () => {
       expect(isLikelyVague('evet')).toBe(true)

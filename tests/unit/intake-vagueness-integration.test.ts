@@ -10,8 +10,9 @@
  * - MAX_PROBES_PER_QUESTION limiti (2) uygulanır
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { isLikelyVague } from '@/lib/answer-vagueness-checker'
+import { resetVaguenessGuardMetrics } from '@/lib/answer-vagueness-checker'
 import type { ConversationMessage } from '@/types/index'
 
 // Count probe questions in history (same logic as intake route)
@@ -40,6 +41,10 @@ function countRecentProbes(history: ConversationMessage[]): number {
 }
 
 describe('Intake Vagueness Integration', () => {
+  beforeEach(() => {
+    resetVaguenessGuardMetrics()
+  })
+
   describe('Probe trigger on vague PM answers', () => {
     it('should trigger probe on single word vague answer', () => {
       const pmAnswer = 'maybe'

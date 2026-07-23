@@ -6,6 +6,52 @@ import type { OpenAIAgentConfig } from '@/types/index'
 // ---------------------------------------------------------------------------
 
 const SHORT_ANSWER_THRESHOLD = 15
+const LOG_INTERVAL = 10  // kaç çağrıda bir oranı logla
+
+const _metrics = {
+  totalCalls: 0,
+  flaggedCalls: 0,  // heuristic flagged
+  probesGenerated: 0,  // probe questions generated
+  maxProbeLimitHits: 0,  // times MAX_PROBES limit was reached
+}
+
+/**
+ * Metrik sayacını sıfırlar.
+ * Test ortamında test izolasyonu için kullanılır — production'da çağrılmamalı.
+ */
+export function resetVaguenessGuardMetrics(): void {
+  _metrics.totalCalls = 0
+  _metrics.flaggedCalls = 0
+  _metrics.probesGenerated = 0
+  _metrics.maxProbeLimitHits = 0
+}
+
+/**
+ * Mevcut metrik anlık görüntüsünü döndürür.
+ * Test assertion'larında kullanılır.
+ */
+export function getVaguenessGuardMetrics(): { 
+  totalCalls: number; 
+  flaggedCalls: number; 
+  probesGenerated: number; 
+  maxProbeLimitHits: number; 
+} {
+  return { ..._metrics }
+}
+
+function recordMetric(flagged: boolean, probeGenerated: boolean, maxProbeHit: boolean): void {
+  _metrics.totalCalls++
+  if (flagged) _metrics.flaggedCalls++
+  if (probeGenerated) _metrics.probesGenerated++
+  if (maxProbeHit) _metrics.maxProbeLimitHits++
+
+  if (_metrics.totalCalls % LOG_INTERVAL === 0) {
+    const pct = ((_metrics.flaggedCalls / _metrics.totalCalls) * 100).toFixed(1)
+    console.log(
+      `[Vagueness] Flag rate: ${_metrics.flaggedCalls}/${_metrics.totalCalls} (%${pct}), Probes generated: ${_metrics.probesGenerated}, Max-probe-limit hits: ${_metrics.maxProbeLimitHits}`
+    )
+  }
+}
 const VAGUE_KEYWORDS = new Set([
   'evet',
   'hayır',
@@ -109,27 +155,32 @@ export function isLikelyVague(answer: string, logPrefix: string = '[Interview/va
     const lower = trimmed.toLowerCase()
     if (VAGUE_KEYWORDS.has(lower)) {
       console.log(`${logPrefix} Heuristic flagged — reason: very short vague keyword`)
+      recordMetric(true, false, false)
       return true
     }
 
     // Even if short, check for concreteness signals
     if (hasConcretenessSignals(trimmed)) {
       console.log(`${logPrefix} Heuristic cleared — reason: short but has concreteness signals`)
+      recordMetric(false, false, false)
       return false
     }
 
     // Very short without concreteness signals is likely vague
     console.log(`${logPrefix} Heuristic flagged — reason: very short without concreteness signals`)
+    recordMetric(true, false, false)
     return true
   }
 
   // Counter-question (user asking instead of answering)
   if (isCounterQuestion(trimmed)) {
     console.log(`${logPrefix} Heuristic flagged — reason: counter-question detected`)
+    recordMetric(true, false, false)
     return true
   }
 
   // Not suspicious
+  recordMetric(false, false, false)
   return false
 }
 
@@ -201,6 +252,7 @@ Is this answer concrete or vague? Respond with JSON only.`
     const jsonMatch = content.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
       console.warn(`${logPrefix} Isolated check failed to parse JSON, defaulting to not vague`)
+      recordMetric(false, false, false) // Record metric for LLM call
       return { isVague: false, reason: 'Parse error - defaulting to not vague' }
     }
 
@@ -208,10 +260,21 @@ Is this answer concrete or vague? Respond with JSON only.`
     
     console.log(`${logPrefix} Isolated check: vague=${result.isVague}, reason=${result.reason}`)
     
+    // Record metric for LLM check (probe will be generated if isVague is true)
+    recordMetric(false, result.isVague, false)
+    
     return result
   } catch (err) {
     console.error(`${logPrefix} Isolated check LLM call failed:`, err)
     // Graceful degradation: if check fails, assume not vague to avoid blocking
+    recordMetric(false, false, false)
     return { isVague: false, reason: 'LLM check failed - defaulting to not vague' }
   }
+}
+
+/**
+ * Record when MAX_PROBES limit is reached (called from routes)
+ */
+export function recordMaxProbeLimitHit(): void {
+  recordMetric(false, false, true)
 }

@@ -15,8 +15,9 @@
  *   - Normal cevaplar clean geçiyor
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { isLikelyVague } from '@/lib/answer-vagueness-checker'
+import { resetVaguenessGuardMetrics } from '@/lib/answer-vagueness-checker'
 
 // ── Gerçek kullanıcı cevabı örnekleri ──────────────────────────────────────────────
 // Her örnek: gerçek interview'da katılımcının verebileceği tipik bir cevap.
@@ -168,6 +169,10 @@ const CALIBRATION_CASES: CalibrationCase[] = [
 // ── Test ──────────────────────────────────────────────────────────────────────
 
 describe('Vagueness Guard Kalibrasyon Doğrulaması', () => {
+  beforeEach(() => {
+    resetVaguenessGuardMetrics()
+  })
+
   // Her örneği ayrı test olarak çalıştır
   CALIBRATION_CASES.forEach(({ id, description, answer, expectedVague, note }) => {
     it(`${id} — ${description}`, () => {
