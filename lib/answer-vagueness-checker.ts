@@ -15,6 +15,8 @@ const VAGUE_KEYWORDS = new Set([
   'herhalde',
   'muhtemelen',
   'belki',
+  'genelde',
+  'genellikle',
   'yes',
   'no',
   "i don't know",
@@ -22,6 +24,9 @@ const VAGUE_KEYWORDS = new Set([
   'maybe',
   'probably',
   'possibly',
+  'usually',
+  'typically',
+  'generally',
 ])
 
 // Concreteness signals - if present, answer is likely concrete even if short
