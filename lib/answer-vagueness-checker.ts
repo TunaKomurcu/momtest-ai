@@ -187,15 +187,13 @@ function isCounterQuestion(answer: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Enhanced heuristic check with confidence levels.
- * Prioritizes concreteness signals (typo-resistant) over evasive pattern matching.
+ * Enhanced heuristic check with three-category logic.
+ * Word list matching is used only as a suspicion score, not as final decision maker.
  * 
  * Logic:
- * 1. If concreteness signal present → NOT vague, HIGH confidence (concrete evidence)
- * 2. If no concreteness AND evasive pattern → VAGUE, HIGH confidence (clear evasion)
- * 3. If no concreteness AND no evasive pattern BUT very short (<10 chars) → VAGUE, LOW confidence (uncertain, needs LLM check)
- * 4. Counter-question → VAGUE, HIGH confidence
- * 5. Otherwise → NOT vague
+ * 1. "confidently concrete" → concreteness signal present AND not very short → vague:false, HIGH confidence (no LLM needed)
+ * 2. "confidently vague" → very short (<10 chars) AND no concreteness signals → vague:true, HIGH confidence (no LLM needed)
+ * 3. "ambiguous" → everything else (word list match or not) → send to isolated LLM check for final decision
  * 
  * @param answer - The user's answer to check
  * @param logPrefix - Optional logging prefix (default: '[Interview/vagueness]')
@@ -206,40 +204,51 @@ export function isLikelyVagueWithConfidence(
   logPrefix: string = '[Interview/vagueness]'
 ): VaguenessCheckWithConfidence {
   const trimmed = answer.trim()
+  const hasConcrete = hasConcretenessSignals(trimmed)
+  const isVeryShort = trimmed.length < 12 // Increased to catch "bilmiyorum" (9 chars) and similar
+  const hasEvasive = hasEvasivePattern(trimmed)
+  const isCounterQ = isCounterQuestion(trimmed)
 
-  // Priority 1: Check for concreteness signals (typo-resistant)
-  if (hasConcretenessSignals(trimmed)) {
-    console.log(`${logPrefix} Heuristic cleared — reason: concreteness signals present (typo-resistant)`)
+  // Category 1: Confidently concrete
+  // Concreteness signal present → definitely concrete (regardless of length)
+  if (hasConcrete) {
+    console.log(`${logPrefix} Heuristic: confidently concrete — concreteness signals present`)
     recordMetric(false, false, false)
-    return { vague: false, confidence: 'high', reason: 'Concreteness signals present' }
+    return { vague: false, confidence: 'high', reason: 'Confidently concrete: has concreteness signals' }
   }
 
-  // Priority 2: Check for evasive patterns using typo-tolerant matching
-  if (hasEvasivePattern(trimmed)) {
+  // Category 2: Confidently vague
+  // Very short AND has evasive pattern → definitely vague
+  // (word list used as additional confirmation signal for very short answers only)
+  if (isVeryShort && hasEvasive) {
     const matchedPattern = getEvasivePatternMatch(trimmed)
-    console.log(`${logPrefix} Heuristic flagged — reason: evasive pattern matched: "${matchedPattern}" (typo-tolerant)`)
+    console.log(`${logPrefix} Heuristic: confidently vague — very short, evasive pattern: ${matchedPattern}`)
     recordMetric(true, false, false)
-    return { vague: true, confidence: 'high', reason: `Evasive pattern: ${matchedPattern}` }
+    return { vague: true, confidence: 'high', reason: `Confidently vague: very short with evasive pattern: ${matchedPattern}` }
   }
 
-  // Priority 3: Very short answers without concreteness or evasion (uncertain)
-  if (trimmed.length < 10) {
-    console.log(`${logPrefix} Heuristic flagged — reason: very short without concreteness signals (low confidence)`)
-    recordMetric(true, false, false)
-    return { vague: true, confidence: 'low', reason: 'Very short answer without concreteness signals' }
+  // Category 3: Ambiguous
+  // Everything else → send to isolated LLM check for final decision
+  // Word list match is just a hint here, not a decision
+  const ambiguousReason = []
+  if (hasEvasive) {
+    const matchedPattern = getEvasivePatternMatch(trimmed)
+    ambiguousReason.push(`evasive pattern hint: ${matchedPattern}`)
   }
-
-  // Priority 4: Counter-question (user asking instead of answering)
-  if (isCounterQuestion(trimmed)) {
-    console.log(`${logPrefix} Heuristic flagged — reason: counter-question detected`)
-    recordMetric(true, false, false)
-    return { vague: true, confidence: 'high', reason: 'Counter-question detected' }
+  if (isCounterQ) {
+    ambiguousReason.push('counter-question hint')
   }
-
-  // Priority 5: Not suspicious
-  console.log(`${logPrefix} Heuristic cleared — reason: no vagueness indicators`)
+  if (!hasConcrete && !isVeryShort) {
+    ambiguousReason.push('no concreteness signals')
+  }
+  
+  console.log(`${logPrefix} Heuristic: ambiguous — ${ambiguousReason.join(', ')} → sending to LLM check`)
   recordMetric(false, false, false)
-  return { vague: false, confidence: 'high', reason: 'No vagueness indicators' }
+  return { 
+    vague: true, // Default to vague for safety, but low confidence means LLM check
+    confidence: 'low', 
+    reason: `Ambiguous: ${ambiguousReason.join(', ')}` 
+  }
 }
 
 /**
@@ -280,18 +289,23 @@ export async function checkAnswerIsVague(
 
 Your job: Determine if the participant's answer provides a concrete, specific example or behavior, or if it is vague, general, or evasive.
 
+CRITICAL: Evaluate based on MEANING ONLY. Do NOT look for specific keywords or predefined word lists. Assess whether the answer actually provides concrete information or is evasive based on its semantic content.
+
 Answer is CONCRETE if it includes:
 - A specific recent example ("Last Tuesday I had this problem")
 - Numbers, dates, or time expressions ("3 times last month")
 - Specific names, tools, or people involved
 - A clear description of actual behavior
+- Any specific details that ground the answer in reality
 
 Answer is VAGUE if it:
 - Gives opinions without examples ("I think it's important")
 - Uses hypothetical language ("I would probably...")
 - Gives generic claims ("usually", "always", "never")
-- Is evasive or redirects the question
+- Is evasive or redirects the question ("I don't really follow that topic")
 - Is a counter-question instead of an answer
+- Lacks any specific details or concrete information
+- Uses vague language that could apply to many situations
 
 Respond ONLY with JSON in this exact format:
 {

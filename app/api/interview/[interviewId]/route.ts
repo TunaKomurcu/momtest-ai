@@ -17,6 +17,7 @@ import {
 } from '@/lib/ai-guards/interview-injection-guard'
 import {
   isLikelyVague,
+  isLikelyVagueWithConfidence,
   checkAnswerIsVague,
   recordMaxProbeLimitHit,
 } from '@/lib/answer-vagueness-checker'
@@ -395,9 +396,11 @@ export async function POST(
     if (lastAgentMsg) {
       lastAgentQuestion = lastAgentMsg.content
 
-      // Heuristic check
-      const heuristicVague = isLikelyVague(userMessage)
-      if (heuristicVague) {
+      // Enhanced heuristic check with confidence levels
+      const vaguenessCheck = isLikelyVagueWithConfidence(userMessage, '[Interview/vagueness]')
+      console.log(`[Vagueness] answer=${vaguenessCheck.vague}, confidence=${vaguenessCheck.confidence}, source=interview, reason=${vaguenessCheck.reason}`)
+      
+      if (vaguenessCheck.vague) {
         // Check if we've already hit the probe limit for this question
         const currentProbeCount = countRecentProbes(history, meaningfulRepliesBeforeThis + 1)
         
@@ -405,12 +408,16 @@ export async function POST(
           console.log(`[Interview/vagueness] Max probes reached for order=${meaningfulRepliesBeforeThis + 1}, moving to next question`)
           recordMaxProbeLimitHit()
           shouldProbe = false
+        } else if (vaguenessCheck.confidence === 'high') {
+          // High confidence: use heuristic result directly
+          shouldProbe = true
+          vaguenessReason = vaguenessCheck.reason
         } else {
-          // Isolated LLM check
-          const vaguenessCheck = await checkAnswerIsVague(lastAgentQuestion, userMessage, openai, agentConfig)
-          if (vaguenessCheck.isVague) {
+          // Low confidence: send to isolated LLM check
+          const isolatedCheck = await checkAnswerIsVague(lastAgentQuestion, userMessage, openai, agentConfig)
+          if (isolatedCheck.isVague) {
             shouldProbe = true
-            vaguenessReason = vaguenessCheck.reason
+            vaguenessReason = isolatedCheck.reason
           }
         }
       }
