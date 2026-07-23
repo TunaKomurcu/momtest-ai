@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { isLikelyVague } from '@/lib/answer-vagueness-checker'
+import { isLikelyVague, isLikelyVagueWithConfidence } from '@/lib/answer-vagueness-checker'
 import { resetVaguenessGuardMetrics } from '@/lib/answer-vagueness-checker'
 import type { ConversationMessage } from '@/types/index'
 
@@ -76,6 +76,209 @@ describe('answer-vagueness-checker', () => {
     it('should handle empty or whitespace-only input', () => {
       expect(isLikelyVague('')).toBe(true)
       expect(isLikelyVague('   ')).toBe(true)
+    })
+  })
+
+  describe('isLikelyVagueWithConfidence - Enhanced Logic', () => {
+    it('should NOT flag concrete answers with typos (high confidence)', () => {
+      // Concrete signals: numbers, dates, time expressions
+      expect(isLikelyVagueWithConfidence('3 kere oldu geçen ay')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+      expect(isLikelyVagueWithConfidence('Last Tuesday I had this problem')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+      expect(isLikelyVagueWithConfidence('5 times last month')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+      expect(isLikelyVagueWithConfidence('%50 artış oldu')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+      expect(isLikelyVagueWithConfidence('2 hafta önce başladım')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+      expect(isLikelyVagueWithConfidence('$50 harcadım')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+    })
+
+    it('should flag evasive answers with typos (high confidence)', () => {
+      // Evasive patterns with typos
+      expect(isLikelyVagueWithConfidence('bilmyrm')).toEqual({
+        vague: true,
+        confidence: 'high',
+        reason: expect.stringContaining('Evasive pattern')
+      })
+      expect(isLikelyVagueWithConfidence('sanrm')).toEqual({
+        vague: true,
+        confidence: 'high',
+        reason: expect.stringContaining('Evasive pattern')
+      })
+      expect(isLikelyVagueWithConfidence('galba')).toEqual({
+        vague: true,
+        confidence: 'high',
+        reason: expect.stringContaining('Evasive pattern')
+      })
+      expect(isLikelyVagueWithConfidence('i dont know')).toEqual({
+        vague: true,
+        confidence: 'high',
+        reason: expect.stringContaining('Evasive pattern')
+      })
+      expect(isLikelyVagueWithConfidence('mayb')).toEqual({
+        vague: true,
+        confidence: 'high',
+        reason: expect.stringContaining('Evasive pattern')
+      })
+    })
+
+    it('should flag short vague answers with low confidence (needs LLM check)', () => {
+      // Very short answers without concreteness or evasion
+      // Using words that don't match any evasive patterns
+      expect(isLikelyVagueWithConfidence('merhaba')).toEqual({
+        vague: true,
+        confidence: 'low',
+        reason: 'Very short answer without concreteness signals'
+      })
+      expect(isLikelyVagueWithConfidence('nasılsın')).toEqual({
+        vague: true,
+        confidence: 'low',
+        reason: 'Very short answer without concreteness signals'
+      })
+      expect(isLikelyVagueWithConfidence('görüşürüz')).toEqual({
+        vague: true,
+        confidence: 'low',
+        reason: 'Very short answer without concreteness signals'
+      })
+      expect(isLikelyVagueWithConfidence('hoşça kal')).toEqual({
+        vague: true,
+        confidence: 'low',
+        reason: 'Very short answer without concreteness signals'
+      })
+    })
+
+    it('should NOT flag normal concrete answers (high confidence)', () => {
+      // Normal answers with sufficient length and no vagueness indicators
+      expect(isLikelyVagueWithConfidence('Bu konuda gerçekten çok düşündüm')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'No vagueness indicators'
+      })
+      expect(isLikelyVagueWithConfidence('Genelde sorun yok ama bazen oluyor')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'No vagueness indicators'
+      })
+      expect(isLikelyVagueWithConfidence('I usually handle it this way')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'No vagueness indicators'
+      })
+    })
+
+    it('should prioritize concreteness over evasive patterns', () => {
+      // Even with evasive words, if there are concrete signals, it's not vague
+      expect(isLikelyVagueWithConfidence('sanırım 3 kere oldu geçen ay')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+      expect(isLikelyVagueWithConfidence('maybe 5 times last week')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+    })
+
+    it('should flag counter-questions with high confidence', () => {
+      expect(isLikelyVagueWithConfidence('Neden soruyorsun?')).toEqual({
+        vague: true,
+        confidence: 'high',
+        reason: 'Counter-question detected'
+      })
+      expect(isLikelyVagueWithConfidence('How would you solve it?')).toEqual({
+        vague: true,
+        confidence: 'high',
+        reason: 'Counter-question detected'
+      })
+      expect(isLikelyVagueWithConfidence('What do you mean?')).toEqual({
+        vague: true,
+        confidence: 'high',
+        reason: 'Counter-question detected'
+      })
+    })
+
+    it('should handle mixed language concreteness signals', () => {
+      expect(isLikelyVagueWithConfidence('3 people last week')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+      expect(isLikelyVagueWithConfidence('5 kişi geçen ay')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+    })
+
+    it('should handle currency and frequency expressions', () => {
+      expect(isLikelyVagueWithConfidence('100 tl harcadım')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+      expect(isLikelyVagueWithConfidence('3 kez denedim')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+    })
+
+    it('should handle date formats', () => {
+      expect(isLikelyVagueWithConfidence('15-01-2024')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+      expect(isLikelyVagueWithConfidence('01/15/2024')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+    })
+
+    it('should handle month and day names', () => {
+      expect(isLikelyVagueWithConfidence('ocak ayında başladım')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+      expect(isLikelyVagueWithConfidence('pazartesi oldu')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+      expect(isLikelyVagueWithConfidence('January this year')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
+      expect(isLikelyVagueWithConfidence('Monday last week')).toEqual({
+        vague: false,
+        confidence: 'high',
+        reason: 'Concreteness signals present'
+      })
     })
   })
 

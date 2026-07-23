@@ -13,6 +13,8 @@
  * Used for detecting vague or evasive user responses in intake and interview flows.
  */
 export const EVASIVE_PATTERNS_TR: string[] = [
+  'evet',
+  'hayır',
   'bilmiyorum',
   'bilmem',
   'hatırlamıyorum',

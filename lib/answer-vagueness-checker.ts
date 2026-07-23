@@ -1,5 +1,8 @@
 import OpenAI from 'openai'
 import type { OpenAIAgentConfig } from '@/types/index'
+import { normalizeUserInput } from '@/lib/text-normalization'
+import { findBestMatch, matchesAny } from '@/lib/typo-tolerant-match'
+import { EVASIVE_PATTERNS_ALL, USER_INPUT_MAX_DISTANCE } from '@/lib/constants'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -76,12 +79,17 @@ const VAGUE_KEYWORDS = new Set([
 ])
 
 // Concreteness signals - if present, answer is likely concrete even if short
+// These patterns are typo-resistant because they use character classes (regex)
 const CONCRETENESS_PATTERNS = [
-  /\d+/, // Numbers
+  /\d+/, // Numbers (e.g., "3 kere", "2 saat", "%50", "5 people")
   /\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b/, // Dates (e.g., 01/15/2024, 15-01-24)
-  /\b(yesterday|today|tomorrow|last week|last month|last year|geçen hafta|geçen ay|geçen yıl|dün|bugün|yarın)\b/i, // Time expressions
+  /\b\d+\s*(yıl|ay|hafta|gün|saat|dakika|saniye|year|month|week|day|hour|minute|second|years|months|weeks|days|hours|minutes|seconds)\b/i, // Relative time with numbers (e.g., "3 ay önce", "2 weeks ago")
+  /\b(yesterday|today|tomorrow|last week|last month|last year|geçen hafta|geçen ay|geçen yıl|dün|bugün|yarın|geçen|önce|sonra|recent|lately|recently)\b/i, // Time expressions
   /\b(january|february|march|april|may|june|july|august|september|october|november|december|ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık)\b/i, // Month names
   /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|pazartesi|salı|çarşamba|perşembe|cuma|cumartesi|pazar)\b/i, // Day names
+  /\$\d+|\d+\s*(tl|dolar|euro|pound|sterling|usd|eur|gbp)\b/i, // Currency amounts (e.g., "$50", "100 tl", "200 usd")
+  /\d+\s*(kere|kez|defa|times|occurrences)\b/i, // Frequency expressions (e.g., "3 kere", "5 times")
+  /\b\d+\s*(kişi|person|people|user|users|client|clients)\b/i, // People counts (e.g., "3 kişi", "5 people")
 ]
 
 // Counter-question patterns - user asking instead of answering
@@ -98,6 +106,13 @@ const SHORT_COUNTER_QUESTION_PATTERN = /^.{1,20}\?$/
 
 export interface VaguenessCheckResult {
   isVague: boolean
+  reason: string
+  confidence?: 'high' | 'low'
+}
+
+export interface VaguenessCheckWithConfidence {
+  vague: boolean
+  confidence: 'high' | 'low'
   reason: string
 }
 
@@ -124,6 +139,36 @@ function hasConcretenessSignals(answer: string): boolean {
   return CONCRETENESS_PATTERNS.some(pattern => pattern.test(lowerAnswer))
 }
 
+/**
+ * Checks if the answer contains evasive patterns using typo-tolerant matching.
+ * This is more robust than exact keyword matching for user input.
+ * For very short words (< 5 chars), uses stricter tolerance to avoid false positives.
+ */
+function hasEvasivePattern(answer: string): boolean {
+  const normalized = normalizeUserInput(answer)
+  const trimmed = normalized.trim()
+  
+  // For very short words, use stricter tolerance to avoid false positives
+  // e.g., "iyi" (good) should not match "yok" (no)
+  const maxDistance = trimmed.length < 5 ? 1 : USER_INPUT_MAX_DISTANCE
+  
+  return matchesAny(normalized, EVASIVE_PATTERNS_ALL, maxDistance)
+}
+
+/**
+ * Gets the specific evasive pattern matched, if any.
+ * For very short words (< 5 chars), uses stricter tolerance to avoid false positives.
+ */
+function getEvasivePatternMatch(answer: string): string | null {
+  const normalized = normalizeUserInput(answer)
+  const trimmed = normalized.trim()
+  
+  // For very short words, use stricter tolerance to avoid false positives
+  const maxDistance = trimmed.length < 5 ? 1 : USER_INPUT_MAX_DISTANCE
+  
+  return findBestMatch(normalized, EVASIVE_PATTERNS_ALL, maxDistance)
+}
+
 function isCounterQuestion(answer: string): boolean {
   const trimmed = answer.trim()
   // Check if it starts with a question word (clear counter-question)
@@ -142,46 +187,71 @@ function isCounterQuestion(answer: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Fast heuristic check for likely vague answers.
+ * Enhanced heuristic check with confidence levels.
+ * Prioritizes concreteness signals (typo-resistant) over evasive pattern matching.
+ * 
+ * Logic:
+ * 1. If concreteness signal present → NOT vague, HIGH confidence (concrete evidence)
+ * 2. If no concreteness AND evasive pattern → VAGUE, HIGH confidence (clear evasion)
+ * 3. If no concreteness AND no evasive pattern BUT very short (<10 chars) → VAGUE, LOW confidence (uncertain, needs LLM check)
+ * 4. Counter-question → VAGUE, HIGH confidence
+ * 5. Otherwise → NOT vague
+ * 
+ * @param answer - The user's answer to check
+ * @param logPrefix - Optional logging prefix (default: '[Interview/vagueness]')
+ * @returns Vagueness check result with confidence level
+ */
+export function isLikelyVagueWithConfidence(
+  answer: string,
+  logPrefix: string = '[Interview/vagueness]'
+): VaguenessCheckWithConfidence {
+  const trimmed = answer.trim()
+
+  // Priority 1: Check for concreteness signals (typo-resistant)
+  if (hasConcretenessSignals(trimmed)) {
+    console.log(`${logPrefix} Heuristic cleared — reason: concreteness signals present (typo-resistant)`)
+    recordMetric(false, false, false)
+    return { vague: false, confidence: 'high', reason: 'Concreteness signals present' }
+  }
+
+  // Priority 2: Check for evasive patterns using typo-tolerant matching
+  if (hasEvasivePattern(trimmed)) {
+    const matchedPattern = getEvasivePatternMatch(trimmed)
+    console.log(`${logPrefix} Heuristic flagged — reason: evasive pattern matched: "${matchedPattern}" (typo-tolerant)`)
+    recordMetric(true, false, false)
+    return { vague: true, confidence: 'high', reason: `Evasive pattern: ${matchedPattern}` }
+  }
+
+  // Priority 3: Very short answers without concreteness or evasion (uncertain)
+  if (trimmed.length < 10) {
+    console.log(`${logPrefix} Heuristic flagged — reason: very short without concreteness signals (low confidence)`)
+    recordMetric(true, false, false)
+    return { vague: true, confidence: 'low', reason: 'Very short answer without concreteness signals' }
+  }
+
+  // Priority 4: Counter-question (user asking instead of answering)
+  if (isCounterQuestion(trimmed)) {
+    console.log(`${logPrefix} Heuristic flagged — reason: counter-question detected`)
+    recordMetric(true, false, false)
+    return { vague: true, confidence: 'high', reason: 'Counter-question detected' }
+  }
+
+  // Priority 5: Not suspicious
+  console.log(`${logPrefix} Heuristic cleared — reason: no vagueness indicators`)
+  recordMetric(false, false, false)
+  return { vague: false, confidence: 'high', reason: 'No vagueness indicators' }
+}
+
+/**
+ * Legacy heuristic check for backward compatibility.
  * Returns true if answer is suspiciously vague, false if likely concrete.
  * @param logPrefix - Optional logging prefix (default: '[Interview/vagueness]')
  */
 export function isLikelyVague(answer: string, logPrefix: string = '[Interview/vagueness]'): boolean {
-  const trimmed = answer.trim()
-
-  // Very short answers
-  if (trimmed.length < SHORT_ANSWER_THRESHOLD) {
-    // Check if it's a vague keyword
-    const lower = trimmed.toLowerCase()
-    if (VAGUE_KEYWORDS.has(lower)) {
-      console.log(`${logPrefix} Heuristic flagged — reason: very short vague keyword`)
-      recordMetric(true, false, false)
-      return true
-    }
-
-    // Even if short, check for concreteness signals
-    if (hasConcretenessSignals(trimmed)) {
-      console.log(`${logPrefix} Heuristic cleared — reason: short but has concreteness signals`)
-      recordMetric(false, false, false)
-      return false
-    }
-
-    // Very short without concreteness signals is likely vague
-    console.log(`${logPrefix} Heuristic flagged — reason: very short without concreteness signals`)
-    recordMetric(true, false, false)
-    return true
-  }
-
-  // Counter-question (user asking instead of answering)
-  if (isCounterQuestion(trimmed)) {
-    console.log(`${logPrefix} Heuristic flagged — reason: counter-question detected`)
-    recordMetric(true, false, false)
-    return true
-  }
-
-  // Not suspicious
-  recordMetric(false, false, false)
-  return false
+  const result = isLikelyVagueWithConfidence(answer, logPrefix)
+  // For backward compatibility, return true if vague regardless of confidence
+  // Low confidence cases should be handled by calling code with LLM check if needed
+  return result.vague
 }
 
 // ---------------------------------------------------------------------------
