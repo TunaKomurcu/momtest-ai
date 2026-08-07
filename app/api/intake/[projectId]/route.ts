@@ -361,22 +361,64 @@ ${probeInstruction}
     { role: 'user', content: userMessage },
   ]
 
+  // ---------------------------------------------------------------------------
+  // DEMO MODE — OPENAI_API_KEY yoksa veya DEMO_MODE=true ise mock cevap döner
+  // ---------------------------------------------------------------------------
+  const isDemoMode = process.env.DEMO_MODE === 'true' || !process.env.OPENAI_API_KEY
+
   let agentReply: string
-  try {
-    const completion = await openai.chat.completions.create({
-      model: agentConfig.model?.name ?? 'gemini-flash-latest',
-      temperature: agentConfig.model?.temperature ?? 0.4,
-      max_tokens: agentConfig.model?.max_tokens ?? 512,
-      messages: openaiMessages,
-    })
-    agentReply = completion.choices[0]?.message?.content?.trim() ?? ''
-    if (!agentReply) throw new Error('Groq boş yanıt döndürdü.')
-  } catch (err) {
-    console.error('[Intake] LLM çağrısı başarısız:', err)
-    return NextResponse.json(
-      { data: null, error: err instanceof Error ? err.message : String(err) },
-      { status: 500 }
-    )
+
+  if (isDemoMode) {
+    const questionNumber = history.filter((m) => m.sender === 'agent').length + 1
+    const mockResponses: Record<number, string> = {
+      1: 'Harika, ürün fikrinizi aldım. Bu sorunu en son ne zaman yaşadınız? Somut bir örnek verebilir misiniz?',
+      2: 'Anlıyorum. Şu anda bu problemi çözmek için ne yapıyorsunuz? Mevcut bir çözümünüz var mı?',
+      3: 'Peki bu süreç ne kadar zaman alıyor ve ne sıklıkla yaşıyorsunuz?',
+      4: 'Bu problemi çözmek için daha önce para harcadınız mı? Ne kadar?',
+      5: 'Hedef kitlenizi biraz daha tanımlayabilir misiniz? Kimler bu problemi en çok yaşıyor?',
+      6: 'Bu problemi yaşayanlar için en büyük acı noktası nedir?',
+      7: 'Mevcut çözümlerin eksikliği nedir? Neden tam olarak işe yaramıyor?',
+      8: 'Son olarak — eğer bu problem yarın çözülseydi, hayatınız nasıl değişirdi?',
+    }
+
+    const mockBriefQuestionCount = 8
+    if (questionNumber >= mockBriefQuestionCount) {
+      agentReply = `Teşekkürler, yeterli bilgiyi topladım. Araştırma briefiniz hazırlanıyor.
+
+<research_brief>
+{
+  "researchGoal": "Kullanıcıların ${project.product_idea} problemiyle ilgili gerçek davranışlarını anlamak",
+  "targetCustomerSegment": "Demo mod — gerçek segment belirlenmedi",
+  "coreSituation": "Demo mod — ${userMessage.slice(0, 100)}",
+  "riskiestAssumption": "Kullanıcıların bu problemi çözmek için ödeme yapacağı varsayımı",
+  "interviewObjective": "Mevcut çözüm davranışlarını ve harcanan zamanı ölçmek",
+  "evidenceNeeded": "Son 3 ayda bu problemle karşılaşıldığına dair somut örnekler",
+  "forbiddenQuestions": ["Bu ürünü kullanır mıydınız?", "Bu iyi bir fikir mi?"],
+  "participantCriteria": "Demo mod — gerçek kriter belirlenmedi"
+}
+</research_brief>`
+    } else {
+      agentReply = mockResponses[questionNumber] ?? 'Anlıyorum, devam edelim. Bu konuda daha fazla detay verebilir misiniz?'
+    }
+
+    console.log(`[Intake] DEMO MODE aktif — soru ${questionNumber} mock cevabı döndürüldü`)
+  } else {
+    try {
+      const completion = await openai.chat.completions.create({
+        model: agentConfig.model?.name ?? 'gemini-flash-latest',
+        temperature: agentConfig.model?.temperature ?? 0.4,
+        max_tokens: agentConfig.model?.max_tokens ?? 512,
+        messages: openaiMessages,
+      })
+      agentReply = completion.choices[0]?.message?.content?.trim() ?? ''
+      if (!agentReply) throw new Error('Groq boş yanıt döndürdü.')
+    } catch (err) {
+      console.error('[Intake] LLM çağrısı başarısız:', err)
+      return NextResponse.json(
+        { data: null, error: err instanceof Error ? err.message : String(err) },
+        { status: 500 }
+      )
+    }
   }
 
   const isComplete = checkCompletion(

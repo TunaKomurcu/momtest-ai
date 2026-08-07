@@ -1,9 +1,23 @@
-# docker-compose.yml
-version: '3.8'
+# =============================================================================
+# MomTest AI — Podman / Docker Compose
+# =============================================================================
+# Kullanım:
+#   1. cp .env.example .env.local
+#   2. .env.local içini doldurun (DATABASE_URL, OPENAI_API_KEY, vb.)
+#   3. podman-compose up --build   (veya: docker compose up --build)
+#
+# Servisler:
+#   db    → PostgreSQL 16 (port 5432)
+#   app   → Next.js 16 (port 3000)
+# =============================================================================
+
 services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL
+  # ---------------------------------------------------------------------------
   db:
-    image: postgres:16
-    restart: always
+    image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: momtest
       POSTGRES_PASSWORD: momtest
@@ -12,46 +26,62 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U momtest -d momtest"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # NemoClaw — Hermes Agent Gateway (test ortamı)
-  #
-  # Başlatmak için:
-  #   docker compose up nemo-agent
-  #
-  # Sadece test/bridge senaryolarında kullanılır.
-  # Mevcut Next.js uygulamasına ve PostgreSQL'e dokunmaz.
-  #
-  # NVIDIA NIM API'yi tercih ediyorsanız bu servisi başlatmanıza gerek yok:
-  # nemo-bridge/config.yaml içinde local_mode: false yapın.
-  # ─────────────────────────────────────────────────────────────────────────
+  # ---------------------------------------------------------------------------
+  # Next.js Application
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.local
+    environment:
+      # DB bağlantısı her zaman container içi db servisine gider
+      DATABASE_URL: postgresql://momtest:momtest@db:5432/momtest
+      NODE_ENV: production
+    ports:
+      - "0.0.0.0:3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # İsteğe bağlı: log persist
+      - app_logs:/app/.next/cache
+
+# =============================================================================
+# NemoClaw — Hermes Agent Gateway (test ortamı, isteğe bağlı)
+# Başlatmak için: podman-compose --profile nemo up
+# =============================================================================
   nemo-agent:
     image: nvcr.io/nvidia/nemo/nemo-retriever-embedding-microservice:24.11
-    # Alternatif (Hermes tabanlı gateway varsa):
-    # image: nvcr.io/nvidia/nim/hermes-2-pro-llama-3-8b:latest
     container_name: momtest-nemo-agent
-    restart: "no"       # test servisi — otomatik restart yok
+    restart: "no"
     ports:
       - "8000:8000"
     environment:
-      # NGC API key — NVIDIA Container Registry erişimi için
       NGC_API_KEY: ${NGC_API_KEY:-}
-      # Model config — config.yaml ile tutarlı olmalı
       NIM_MODEL_NAME: ${NIM_MODEL_NAME:-hermes-2-pro}
     volumes:
-      # Skill dosyasını container içine bağla
       - ./nemo-bridge/skills:/app/skills:ro
       - ./nemo-bridge/config.yaml:/app/config.yaml:ro
     profiles:
-      # Sadece `docker compose --profile nemo up` ile başlatılır
-      # Normal `docker compose up` bunu atlar
       - nemo
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
 
+# =============================================================================
 volumes:
   postgres_data:
+  app_logs:

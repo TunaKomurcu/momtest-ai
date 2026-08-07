@@ -94,33 +94,14 @@ mom-test-customer-discovery/
 
 ## Getting started
 
-### 1. Clone and install
+### 1. Clone and install dependencies
 
 ```bash
-git clone https://github.com/your-org/momtest-ai.git
+git clone <repo-url>
 cd momtest-ai
-npm install
 ```
 
-### 2. Start PostgreSQL
-
-A `docker-compose.yml` is included for local development:
-
-```bash
-docker compose up -d
-```
-
-Or point `DATABASE_URL` to any existing PostgreSQL instance.
-
-### 3. Run migrations
-
-```bash
-npx drizzle-kit push
-```
-
-This applies the schema from `lib/db/schema.ts` to your database.
-
-### 4. Configure environment variables
+### 2. Configure environment variables
 
 ```bash
 cp .env.example .env.local
@@ -129,32 +110,40 @@ cp .env.example .env.local
 Fill in `.env.local`:
 
 ```bash
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/momtest
 OPENAI_API_KEY=sk-proj-...
+# DATABASE_URL is set automatically inside the container — do not fill in
 MAKE_WEBHOOK_INTERVIEW_URL=   # optional
 MAKE_WEBHOOK_ANALYSIS_URL=    # optional
 ```
 
-### 5. Configure the LLM provider (optional)
+### 3. Start with Podman
+
+```bash
+podman compose up --build -d
+```
+
+This builds the Next.js image, runs Drizzle migrations automatically, and starts both the app and PostgreSQL. Open [http://localhost:3000](http://localhost:3000) — you land directly on the dashboard, no login required.
+
+> **Windows only:** After the first run, open an Admin PowerShell and set up a port proxy so `localhost:3000` works:
+> ```powershell
+> $wslIp = podman machine ssh "ip -4 addr show eth0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}'"
+> netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=3000 connectaddress=$wslIp connectport=3000
+> ```
+
+### 4. Configure the LLM provider (optional)
 
 Edit `mom-test-customer-discovery/agents/openai.yaml` to change the model or provider:
 
 ```yaml
 model:
-  provider: "groq"
-  name: "llama-3.3-70b-versatile"
-  base_url: "https://api.groq.com/openai/v1"
+  provider: "openai"
+  name: "gpt-4o-mini"
+  base_url: "https://api.openai.com/v1"
   temperature: 0.7
   max_tokens: 1024
 ```
 
-### 6. Run the development server
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) — you land directly on the dashboard, no login required.
+Groq, Google AI Studio, and any OpenAI-compatible endpoint are supported. No rebuild needed after changing this file — restart is enough.
 
 ---
 
@@ -187,4 +176,49 @@ All cascade deletes: removing a project removes all its interviews and messages.
 
 ## Deployment
 
-The project is designed for [Vercel](https://vercel.com). Set the environment variables in the Vercel project settings and deploy from the main branch. You will need a hosted PostgreSQL database (Neon, Supabase DB-only, Railway, etc.) — set `DATABASE_URL` accordingly.
+### Podman / Docker (recommended)
+
+The project ships with a production-ready multi-stage `Dockerfile` and `docker-compose.yml`.
+
+```bash
+# Start everything (builds image on first run)
+podman compose up --build -d
+
+# Stop (data is preserved in the postgres volume)
+podman compose down
+
+# Rebuild after code changes
+podman compose down && podman compose up --build -d
+```
+
+Use the included helper scripts for convenience:
+
+```powershell
+.\podman-start.ps1            # Windows — start
+.\podman-start.ps1 rebuild    # Windows — full rebuild
+```
+
+```bash
+./podman-start.sh             # Linux/macOS — start
+./podman-start.sh rebuild     # Linux/macOS — full rebuild
+```
+
+Data is persisted in a named volume (`momtest2_postgres_data`). Drizzle migrations run automatically on every container start.
+
+### Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `OPENAI_API_KEY` | ✅ | OpenAI (or compatible) API key |
+| `DATABASE_URL` | — | Set automatically inside the container |
+| `MAKE_WEBHOOK_INTERVIEW_URL` | optional | Fired when an interview completes |
+| `MAKE_WEBHOOK_ANALYSIS_URL` | optional | Fired when analysis completes |
+| `DEMO_MODE` | optional | Set to `true` to run with mock LLM responses (no API key needed) |
+
+### Vercel (alternative)
+
+The app can also be deployed to Vercel with a hosted PostgreSQL database (Neon, Railway, Supabase DB, etc.). Set `DATABASE_URL` and `OPENAI_API_KEY` in the Vercel project settings and deploy from the main branch. Run migrations manually before first deploy:
+
+```bash
+DATABASE_URL=<your-hosted-db-url> npx drizzle-kit push
+```

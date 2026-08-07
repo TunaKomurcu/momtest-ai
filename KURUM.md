@@ -1,93 +1,174 @@
 # Kurulum Talimatları
 
-Bu proje şirket ortamında Bitbucket'a yüklenmek üzere hazırlanmıştır. Aşağıdaki adımları sırasıyla takip ederek geliştirme ortamını kurun.
+Bu proje Podman ile containerize edilmiştir. Tüm bileşenler (Next.js uygulaması + PostgreSQL) tek komutla ayağa kalkar.
 
 ## Ön Gereksinimler
 
-- **Docker Desktop** - PostgreSQL container'ı için
-- **Node.js 20+** - Runtime ortamı
-- **npm** - Paket yöneticisi
-- **Git** - Versiyon kontrolü
+- **Podman Desktop** — https://podman-desktop.io/
+  - Windows'ta WSL2 backend ile birlikte gelir
+  - Kurulumdan sonra Podman machine'in çalıştığından emin olun: `podman machine start`
+- **Git** — Versiyon kontrolü
 
-## Adım 1: Projeyi Klonlayın
+> Docker Desktop kullanıcıları için: `podman compose` yerine `docker compose` komutlarını kullanabilirsiniz, tüm dosyalar uyumludur.
+
+---
+
+## Hızlı Başlangıç
+
+### 1. Projeyi Klonlayın
 
 ```bash
-git clone <bitbucket-repo-url>
+git clone <repo-url>
 cd momtest-ai
 ```
 
-## Adım 2: Dependencies'leri Yükleyin
-
-```bash
-npm install
-```
-
-## Adım 3: PostgreSQL'i Başlatın
-
-Docker Compose ile PostgreSQL container'ını başlatın:
-
-```bash
-docker compose up -d
-```
-
-Bu komut:
-- PostgreSQL 16 image'ini çeker
-- `momtest` kullanıcısı ve veritabanını oluşturur
-- 5432 portunu açar
-- Verileri `postgres_data` volume'unda saklar
-
-## Adım 4: Environment Variables'ı Yapılandırın
-
-Örnek environment dosyasını kopyalayın:
+### 2. Environment Variables'ı Yapılandırın
 
 ```bash
 cp .env.example .env.local
 ```
 
-`.env.local` dosyasını düzenleyin ve şu değişkenleri doldurun:
+`.env.local` dosyasını açın ve şu değişkenleri doldurun:
 
 ```bash
-# PostgreSQL bağlantısı
-DATABASE_URL=postgresql://momtest:momtest@localhost:5432/momtest
-
-# LLM Provider API Key (Groq, OpenAI, vb.)
+# OpenAI API Key — https://platform.openai.com/account/api-keys
 OPENAI_API_KEY=sk-proj-...
 
-# Opsiyonel Webhook URL'leri
+# Opsiyonel — Make.com webhook URL'leri
 MAKE_WEBHOOK_INTERVIEW_URL=
 MAKE_WEBHOOK_ANALYSIS_URL=
 ```
 
-## Adım 5: Database Migrations'ı Çalıştırın
+> `DATABASE_URL` **doldurmayın** — container içinde otomatik ayarlanır.
 
-Drizzle ORM ile schema'yı veritabanına uygulayın:
+### 3. Container'ları Başlatın
 
 ```bash
-npm run db:push
+podman compose up --build -d
 ```
 
-Bu komut `lib/db/schema.ts` dosyasındaki tablo tanımlarını PostgreSQL'e uygular:
-- `projects` tablosu
-- `interviews` tablosu
-- `messages` tablosu
+Bu komut:
+- PostgreSQL 16 container'ı başlatır ve sağlık kontrolü yapar
+- Next.js uygulamasını derler (ilk seferinde ~1-2 dakika sürer)
+- Drizzle migrasyonlarını otomatik çalıştırır
+- http://localhost:3000 adresinde uygulamayı başlatır
 
-## Adım 6: LLM Provider'ı Yapılandırın (Opsiyonel)
+### 4. Windows'ta Port Erişimi (sadece ilk kurulumda)
 
-Varsayılan ayarları değiştirmek isterseniz `mom-test-customer-discovery/agents/openai.yaml` dosyasını düzenleyin:
+Podman WSL backend kullandığı için Windows'tan erişmek üzere port proxy kurulması gerekir. **Admin PowerShell** açın:
+
+```powershell
+# WSL IP'sini öğren
+$wslIp = podman machine ssh "ip -4 addr show eth0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}'"
+
+# Port proxy kur
+netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=3000 connectaddress=$wslIp connectport=3000
+```
+
+> **Not:** PC restart sonrası WSL IP değişebilir. Değişirse eski kuralı silip yeniden ekleyin:
+> ```powershell
+> netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=3000
+> ```
+
+---
+
+## Günlük Kullanım
+
+### Container'ları başlat/durdur
+
+```powershell
+# Başlat (rebuild olmadan)
+podman compose up -d
+
+# Durdur (veriler korunur)
+podman compose down
+
+# Logları izle
+podman logs momtest2-app-1 -f
+```
+
+### Sıfırdan rebuild (kod değişikliği sonrası)
+
+```powershell
+podman compose down
+podman compose up --build -d
+```
+
+### Ya da hazır scripti kullan
+
+```powershell
+# Windows
+.\podman-start.ps1          # başlat
+.\podman-start.ps1 down     # durdur
+.\podman-start.ps1 rebuild  # sıfırdan build
+.\podman-start.ps1 logs     # logları izle
+```
+
+```bash
+# Linux / macOS
+./podman-start.sh           # başlat
+./podman-start.sh down      # durdur
+./podman-start.sh rebuild   # sıfırdan build
+```
+
+---
+
+## Environment Variables
+
+| Değişken | Zorunlu | Açıklama |
+|---|---|---|
+| `OPENAI_API_KEY` | ✅ | OpenAI API anahtarı |
+| `DATABASE_URL` | ❌ | Container içinde otomatik ayarlanır — elle girmeyin |
+| `MAKE_WEBHOOK_INTERVIEW_URL` | ❌ | Mülakat tamamlandığında tetiklenir |
+| `MAKE_WEBHOOK_ANALYSIS_URL` | ❌ | Analiz tamamlandığında tetiklenir |
+| `DEMO_MODE` | ❌ | `true` yapılırsa OpenAI key olmadan mock cevaplarla çalışır |
+
+---
+
+## LLM Provider Yapılandırması
+
+`mom-test-customer-discovery/agents/openai.yaml` dosyasını düzenleyin:
 
 ```yaml
 model:
-  provider: "groq"           # groq, openai, vb.
-  name: "llama-3.3-70b-versatile"
-  base_url: "https://api.groq.com/openai/v1"
+  provider: "openai"
+  name: "gpt-4o-mini"
+  base_url: "https://api.openai.com/v1"
   temperature: 0.7
   max_tokens: 1024
 ```
 
-## Adım 7: Development Server'ı Başlatın
+Groq, Google AI Studio veya OpenAI-compatible herhangi bir provider desteklenir.
+Değişiklik sonrası rebuild gerekmez — sadece restart yeterli.
 
-```bash
-npm run dev
+---
+
+## Veritabanı
+
+Veriler `momtest2_postgres_data` adlı Podman volume'unda kalıcı olarak saklanır.
+`podman compose down` yapılsa bile veriler silinmez.
+
+Veriyi tamamen sıfırlamak için:
+```powershell
+podman compose down
+podman volume rm momtest2_postgres_data
+podman compose up --build -d
 ```
 
-Server http://localhost:3000 adresinde başlar. Dashboard'a otomatik yönlendirilirsiniz (login gerekmez).
+---
+
+## Sorun Giderme
+
+**Port 3000'e bağlanılamıyor:**
+- Admin PowerShell'de port proxy kurulduğundan emin olun (yukarıdaki adım 4)
+- `podman ps` ile container'ların çalıştığını kontrol edin
+
+**Container başlamıyor:**
+```powershell
+podman logs momtest2-app-1 --tail 50
+```
+
+**Podman machine çalışmıyor:**
+```powershell
+podman machine start
+```

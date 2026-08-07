@@ -266,6 +266,87 @@ export async function POST(
     .join('\n')
 
   // ---------------------------------------------------------------------------
+  // DEMO MODE — OPENAI_API_KEY yoksa veya DEMO_MODE=true ise mock stream döner
+  // ---------------------------------------------------------------------------
+  const isDemoMode = process.env.DEMO_MODE === 'true' || !process.env.OPENAI_API_KEY
+
+  if (isDemoMode) {
+    const mockBrief = {
+      productIdea: project.product_idea,
+      targetCustomer: 'Demo: Küçük ve orta ölçekli işletme sahipleri',
+      coreSituation: 'Müşteri keşfi sürecinde yapılandırılmış bir yöntem olmadığında',
+      currentBelief: 'Kullanıcıların bu sorunu çözmek için ödeme yapacağı',
+      riskiestAssumption: 'Kullanıcıların mevcut çözümlerden memnun olmadığı varsayımı',
+      interviewObjective: 'Gerçek iş akışlarını ve mevcut geçici çözümleri anlamak',
+      evidenceNeeded: {
+        strong: 'Son 3 ayda bu problemle karşılaşıldığına dair somut örnekler',
+        weak: 'Genel övgü veya hipotetik kullanım niyeti',
+        negative: 'Mevcut çözümden memnuniyet veya düşük sıklık',
+      },
+      participantCriteria: {
+        mustHave: ['Düzenli olarak bu problemi yaşıyor', 'Karar verici veya etkileyici konumda'],
+        avoid: ['Sadece merak eden', 'Problemi hiç yaşamamış'],
+      },
+      forbiddenQuestions: ['Bu ürünü kullanır mıydınız?', 'Bu iyi bir fikir mi?'],
+      assumptionMap: [
+        { assumption: 'Problem gerçek ve sık yaşanıyor', riskLevel: 'high', whatToAskAbout: 'Sıklık ve etki', strongEvidence: 'Son örnek', weakEvidence: 'Genel şikayet' },
+        { assumption: 'Mevcut çözümler yetersiz', riskLevel: 'high', whatToAskAbout: 'Mevcut araçlar', strongEvidence: 'Manuel geçici çözüm', weakEvidence: 'Teorik tercih' },
+      ],
+    }
+    const mockScript = {
+      goal: `${project.product_idea} ile ilgili gerçek davranışları anlamak`,
+      rulesForInterviewer: ['Ürünü tanıtma', 'Bir soru sor ve cevabı bekle', 'Geçmiş örnekler sor'],
+      questions: [
+        { order: 1, question: 'Bu konuyu en son ne zaman yaşadınız?', signalSought: 'frequency', whyItPasses: 'Geçmiş davranış soruyor' },
+        { order: 2, question: 'Şu anda bunu nasıl çözüyorsunuz?', signalSought: 'workaround', whyItPasses: 'Mevcut davranış soruyor' },
+        { order: 3, question: 'Bu süreç ne kadar sürüyor?', signalSought: 'cost', whyItPasses: 'Zaman maliyeti soruyor' },
+        { order: 4, question: 'Bu problemi çözmek için para harcadınız mı?', signalSought: 'budget', whyItPasses: 'Gerçek harcama soruyor' },
+      ],
+    }
+
+    const mockStream = new ReadableStream({
+      async start(controller) {
+        const briefJson = JSON.stringify(mockBrief, null, 2)
+        const scriptJson = JSON.stringify(mockScript, null, 2)
+
+        // Research brief stream
+        for (const char of briefJson) {
+          controller.enqueue(encodeChunk({ stage: 'research_brief', content: char }))
+        }
+        await new Promise(r => setTimeout(r, 300))
+
+        // Interview script stream
+        for (const char of scriptJson) {
+          controller.enqueue(encodeChunk({ stage: 'interview_script', content: char }))
+        }
+        await new Promise(r => setTimeout(r, 200))
+
+        // DB'ye kaydet
+        try {
+          await db.update(projects).set({ research_brief: mockBrief, updated_at: new Date() }).where(eq(projects.id, projectId))
+          await db.update(projects).set({ interview_script: mockScript, updated_at: new Date() }).where(eq(projects.id, projectId))
+        } catch (err) {
+          console.error('[Generate] Demo mock kaydı başarısız:', err)
+        }
+
+        controller.enqueue(encodeChunk({ stage: 'done', content: JSON.stringify({ researchBriefSaved: true, interviewScriptSaved: true }) }))
+        controller.close()
+        console.log('[Generate] DEMO MODE aktif — mock brief ve script döndürüldü')
+      },
+    })
+
+    return new Response(mockStream, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      },
+    })
+  }
+
+  // ---------------------------------------------------------------------------
   // Streaming ReadableStream
   // ---------------------------------------------------------------------------
 

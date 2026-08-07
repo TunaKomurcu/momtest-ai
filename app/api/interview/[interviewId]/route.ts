@@ -466,28 +466,47 @@ ${scriptContext}
 
   if (!injectionDetected) {
     // ADIM 3: Interviewer LLM — soru üret
-    try {
-      const completion = await openai.chat.completions.create({
-        model: agentConfig.model?.name ?? 'gemini-flash-latest',
-        temperature: agentConfig.model?.temperature ?? 0.7,
-        max_tokens: agentConfig.model?.max_tokens ?? 512,
-        messages: llmMessages,
-      })
-      agentReply = completion.choices[0]?.message?.content?.trim() ?? ''
-      if (!agentReply) throw new Error('LLM boş yanıt döndürdü.')
-    } catch (err) {
-      console.error('[Interview] LLM çağrısı başarısız:', err)
-      return NextResponse.json(
-        { data: null, error: 'Yapay zeka yanıtı alınamadı. Lütfen tekrar deneyin.' },
-        { status: 500 }
-      )
+    // DEMO MODE — OPENAI_API_KEY yoksa veya DEMO_MODE=true ise mock cevap döner
+    const isDemoMode = process.env.DEMO_MODE === 'true' || !process.env.OPENAI_API_KEY
+
+    if (isDemoMode) {
+      const replyCount = meaningfulRepliesBeforeThis
+      const mockInterviewResponses = [
+        `Thanks for taking the time. I am trying to understand how this situation works in your real workflow. I am not here to sell anything. I will mostly ask about what you already do today and recent examples. Ready to get started?`,
+        `Tell me about the last time you encountered this problem. What happened exactly?`,
+        `Walk me through how you handle this today. What tools or steps are involved?`,
+        `How often does this happen? And how long does it take each time?`,
+        `What have you tried before to solve this? Why didn't it work?`,
+        `Who else in your team or organization is affected by this?`,
+        `Have you paid for anything to solve this problem? What was it?`,
+        `What would need to happen for you to try a completely different approach?`,
+        `Is there anything important I failed to ask about this topic?`,
+        `This has been really helpful. Thank you for your time and honest answers. I have what I need. Have a great day!`,
+      ]
+      agentReply = mockInterviewResponses[Math.min(replyCount, mockInterviewResponses.length - 1)]
+      console.log(`[Interview] DEMO MODE aktif — cevap ${replyCount} döndürüldü`)
+    } else {
+      // ADIM 3: Interviewer LLM — soru üret
+      try {
+        const completion = await openai.chat.completions.create({
+          model: agentConfig.model?.name ?? 'gemini-flash-latest',
+          temperature: agentConfig.model?.temperature ?? 0.7,
+          max_tokens: agentConfig.model?.max_tokens ?? 512,
+          messages: llmMessages,
+        })
+        agentReply = completion.choices[0]?.message?.content?.trim() ?? ''
+        if (!agentReply) throw new Error('LLM boş yanıt döndürdü.')
+      } catch (err) {
+        console.error('[Interview] LLM çağrısı başarısız:', err)
+        return NextResponse.json(
+          { data: null, error: 'Yapay zeka yanıtı alınamadı. Lütfen tekrar deneyin.' },
+          { status: 500 }
+        )
+      }
     }
 
-    // ADIM 4: Self-check guard — üretilen soruyu kontrol et
-    // Kapanış mesajları guard'a girmez.
-    // Her iki dal (BLOCKED + RISKY) aynı MAX_INTERVIEW_GUARD_RETRIES döngüsünü kullanır.
-    // Retry çıktısı hem kural filtresinden hem isolated check'ten geçmeden kabul edilmez.
-    if (!isClosingMessage(agentReply)) {
+    // ADIM 4: Self-check guard — sadece gerçek LLM modunda çalışır
+    if (!isDemoMode && !isClosingMessage(agentReply)) {
       const initialGuard = applyInterviewGuard(agentReply)
 
       console.log('[Interview/guard] orijinal cevap:', {

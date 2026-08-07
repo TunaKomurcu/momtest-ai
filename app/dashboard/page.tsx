@@ -6,6 +6,8 @@ import type { Project, Interview } from '@/types/database.types'
 import type { DashboardProject } from '@/components/dashboard/types'
 import { DashboardWorkspace } from '@/components/dashboard/dashboard-workspace'
 
+export const dynamic = 'force-dynamic'
+
 export default async function DashboardPage() {
   // Tüm projeleri çek
   const projectRows = await db

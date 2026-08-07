@@ -213,13 +213,72 @@ new OpenAI({
 
 ## Authentication
 
-Authentication has been removed. There is no login page, no session management, and no ownership checks. `proxy.ts` is a passthrough middleware with an empty `matcher` — it does not protect any routes.
+Authentication has been removed. There is no login page, no session management, and no ownership checks. `proxy.ts` has been deleted — there is no middleware. The dashboard is publicly accessible.
 
 To re-introduce auth, the recommended path is:
 1. Add a `user_id` column to the `projects` table
 2. Introduce a session mechanism (e.g. JWT cookie, NextAuth, or Supabase Auth)
 3. Filter queries by `user_id` in each route handler
-4. Restore route protection in `proxy.ts`
+4. Add a `middleware.ts` to protect routes
+
+---
+
+## Deployment
+
+### Container layout
+
+```
+Dockerfile (multi-stage)
+  ├── Stage 1: deps     — npm ci --omit=dev
+  ├── Stage 2: builder  — npm ci + next build (standalone output)
+  └── Stage 3: runner   — node:20-alpine, non-root user, ~200MB image
+
+docker-compose.yml
+  ├── db   — postgres:16-alpine, named volume, healthcheck
+  └── app  — built from Dockerfile, depends_on db (healthy)
+```
+
+### Startup sequence
+
+```
+podman compose up --build
+  → db container starts + healthcheck passes
+  → app container starts
+      → docker-entrypoint.sh runs
+          → waits for DB to accept connections (pg ping loop)
+          → migrate.js runs (idempotent SQL migrations via __drizzle_migrations table)
+          → node server.js starts (Next.js standalone)
+  → http://localhost:3000 ready
+```
+
+### Environment variables
+
+| Variable | Required | Set by |
+|---|---|---|
+| `OPENAI_API_KEY` | ✅ | `.env.local` |
+| `DATABASE_URL` | — | `docker-compose.yml` (overrides `.env.local`) |
+| `MAKE_WEBHOOK_INTERVIEW_URL` | optional | `.env.local` |
+| `MAKE_WEBHOOK_ANALYSIS_URL` | optional | `.env.local` |
+| `DEMO_MODE` | optional | `.env.local` — `true` enables mock LLM responses |
+
+### Data persistence
+
+PostgreSQL data lives in the `momtest2_postgres_data` named volume. It survives `podman compose down`. To wipe all data:
+
+```bash
+podman compose down
+podman volume rm momtest2_postgres_data
+```
+
+### Windows port proxy (WSL backend)
+
+Podman on Windows uses a WSL2 VM. The container's port 3000 is accessible inside WSL but not automatically forwarded to Windows. A one-time `netsh` rule is needed:
+
+```powershell
+# Admin PowerShell — run once per WSL IP (may change after PC restart)
+$wslIp = podman machine ssh "ip -4 addr show eth0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}'"
+netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=3000 connectaddress=$wslIp connectport=3000
+```
 
 ---
 

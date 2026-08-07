@@ -411,6 +411,62 @@ export async function POST(
     baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
   })
 
+  // ---------------------------------------------------------------------------
+  // DEMO MODE — OPENAI_API_KEY yoksa veya DEMO_MODE=true ise mock analiz döner
+  // ---------------------------------------------------------------------------
+  const isDemoMode = process.env.DEMO_MODE === 'true' || !process.env.OPENAI_API_KEY
+
+  if (isDemoMode) {
+    const mockAnalysis: StructuredAnalysis = {
+      decision: 'continue discovery',
+      summary: `Demo analiz: ${interview.participant_name} ile yapılan mülakatta problem varlığına dair orta düzeyde kanıt bulundu. Mevcut geçici çözümler var ancak ciddi bir maliyet ya da aciliyet sinyali gelmedi. Daha fazla katılımcıyla görüşmek gerekiyor.`,
+      signalScore: {
+        problemEvidence: 'medium',
+        urgency: 'weak',
+        workaroundEvidence: 'medium',
+        budgetOrCommitment: 'weak',
+      },
+      strongEvidence: [],
+      mediumEvidence: messageRows
+        .filter(m => m.sender === 'participant' && m.content.length > 20)
+        .slice(0, 2)
+        .map(m => ({ quote: m.content.slice(0, 100), message_id: m.id, context: 'Demo: Katılımcı cevabı mevcut problemi yansıtıyor' })),
+      weakEvidence: messageRows
+        .filter(m => m.sender === 'participant')
+        .slice(0, 1)
+        .map(m => ({ quote: m.content.slice(0, 80), message_id: m.id, whyItIsWeak: 'Demo: Genel ifade, somut örnek yok' })),
+      negativeEvidence: [],
+      openQuestions: [
+        'Bu problemi ne sıklıkla yaşıyorlar?',
+        'Mevcut çözüm için ne kadar para harcıyorlar?',
+        'Karar verici kim?',
+      ],
+      recommendedNextStep: 'Daha fazla katılımcıyla görüş ve somut geçici çözüm örnekleri topla.',
+    }
+
+    const signalScore = buildSignalScore(mockAnalysis)
+    const signalSummary = buildSignalSummary(mockAnalysis)
+    const markdownReport = buildMarkdownReport(mockAnalysis, interview.participant_name)
+
+    try {
+      await db.update(interviews).set({
+        signal_score: signalScore,
+        evidence_report: markdownReport,
+        analysis_json: mockAnalysis,
+        analyzed_at: new Date(),
+        updated_at: new Date(),
+      }).where(eq(interviews.id, interviewId))
+    } catch (err) {
+      console.error('[Analyze] Demo mock kaydı başarısız:', err)
+    }
+
+    console.log('[Analyze] DEMO MODE aktif — mock analiz döndürüldü')
+    return NextResponse.json(
+      { data: { decision: mockAnalysis.decision, signalSummary, evidenceReportSaved: true, signalScoreSaved: true }, error: null },
+      { status: 200 }
+    )
+  }
+
   // --- LLM çağrısı ---
   let rawAnalysis: string
   try {

@@ -8,6 +8,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Podman / Docker containerization** — Production-ready multi-stage `Dockerfile` (Node 20 Alpine, standalone Next.js output), `docker-compose.yml` with PostgreSQL 16, health checks, and named volume persistence.
+- **Automatic Drizzle migrations** — `docker-entrypoint.sh` runs `migrate.js` on every container start; uses raw `pg` client (no `drizzle-orm` dependency in the runner) with idempotent SQL files.
+- **`migrate.js`** — Lightweight migration runner that tracks applied files in `__drizzle_migrations` table; handles Drizzle's `-->statement-breakpoint` markers.
+- **`podman-start.ps1` / `podman-start.sh`** — Helper scripts for `up`, `down`, `rebuild`, and `logs` actions; auto-detects `podman compose`, `podman-compose`, or `docker compose`.
+- **`.env.example`** — Template for all required and optional environment variables.
+- **`DEMO_MODE` env variable** — Set to `true` to run all LLM routes with deterministic mock responses (no API key required); useful for testing the full UI flow without credits.
+- **`export const dynamic = 'force-dynamic'`** on `app/dashboard/page.tsx` — Prevents Next.js from statically pre-rendering the dashboard at build time (which caused projects to disappear after page refresh).
+- **`0002_add_analyzed_at_to_interviews.sql` migration** — Adds the missing `analyzed_at` column that was defined in the schema but absent from previous migrations.
+
+### Changed
+- **`next.config.ts`** — Added `output: 'standalone'` for optimized container image size.
+- **`app/dashboard/page.tsx`** — Added `force-dynamic` to ensure fresh DB reads on every request.
+
+### Removed
+- **`momtest/`** — Empty nested git repository, no longer needed.
+- **`nemo-bridge/`** — Hermes Agent Gateway test scaffold, unused in production.
+- **`test_documents/`** — Stale JSON test fixtures.
+- **`proxy.ts`** — Empty passthrough middleware (matcher was `[]`), removed.
+- **`VAGUENESS_GUARD.md`** — Content fully covered by `ARCHITECTURE.md`.
+
+### Added
 - **Vagueness Guard** — Hybrid heuristic + LLM system to detect vague answers during participant interviews
 - **`isLikelyVagueWithConfidence()`** — Three-category vagueness detection (confidently concrete/vague, ambiguous)
 - **`checkAnswerIsVague()`** — Isolated LLM check for ambiguous cases with meaning-only evaluation prompt
