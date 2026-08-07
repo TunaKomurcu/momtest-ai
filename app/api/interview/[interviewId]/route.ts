@@ -377,7 +377,7 @@ export async function POST(
 
   const agentConfig = loadAgentConfig()
   const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: process.env.LLM_API_KEY,
     baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
   })
 
@@ -466,8 +466,8 @@ ${scriptContext}
 
   if (!injectionDetected) {
     // ADIM 3: Interviewer LLM — soru üret
-    // DEMO MODE — OPENAI_API_KEY yoksa veya DEMO_MODE=true ise mock cevap döner
-    const isDemoMode = process.env.DEMO_MODE === 'true' || !process.env.OPENAI_API_KEY
+    // DEMO MODE — LLM_API_KEY yoksa veya DEMO_MODE=true ise mock cevap döner
+    const isDemoMode = process.env.DEMO_MODE === 'true' || !process.env.LLM_API_KEY
 
     if (isDemoMode) {
       const replyCount = meaningfulRepliesBeforeThis

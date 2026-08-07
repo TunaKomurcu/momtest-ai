@@ -181,7 +181,7 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string }> }
 ): Promise<NextResponse<ApiResponse<IntakeResponseData>>> {
   console.log('[DEBUG] ENV CHECK:', {
-    hasOpenAIKey: !!process.env.OPENAI_API_KEY,
+    hasOpenAIKey: !!process.env.LLM_API_KEY,
     nodeEnv: process.env.NODE_ENV,
   })
 
@@ -256,7 +256,7 @@ export async function POST(
   // --- LLM config ---
   const agentConfig = loadOpenAIConfig()
   const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: process.env.LLM_API_KEY,
     baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
   })
 
@@ -362,9 +362,9 @@ ${probeInstruction}
   ]
 
   // ---------------------------------------------------------------------------
-  // DEMO MODE — OPENAI_API_KEY yoksa veya DEMO_MODE=true ise mock cevap döner
+  // DEMO MODE — LLM_API_KEY yoksa veya DEMO_MODE=true ise mock cevap döner
   // ---------------------------------------------------------------------------
-  const isDemoMode = process.env.DEMO_MODE === 'true' || !process.env.OPENAI_API_KEY
+  const isDemoMode = process.env.DEMO_MODE === 'true' || !process.env.LLM_API_KEY
 
   let agentReply: string
 

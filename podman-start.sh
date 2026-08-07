@@ -16,7 +16,7 @@ echo -e "${GREEN}==> MomTest AI — Podman Başlatma${NC}"
 if [ ! -f ".env.local" ]; then
   echo -e "${YELLOW}⚠  .env.local bulunamadı. .env.example'dan kopyalanıyor...${NC}"
   cp .env.example .env.local
-  echo -e "${RED}✖  Lütfen .env.local dosyasını düzenleyin (OPENAI_API_KEY, vb.) ve tekrar çalıştırın.${NC}"
+  echo -e "${RED}✖  Lütfen .env.local dosyasını düzenleyin (LLM_API_KEY, vb.) ve tekrar çalıştırın.${NC}"
   exit 1
 fi
 

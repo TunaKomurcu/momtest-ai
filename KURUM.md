@@ -32,7 +32,7 @@ cp .env.example .env.local
 
 ```bash
 # OpenAI API Key — https://platform.openai.com/account/api-keys
-OPENAI_API_KEY=sk-proj-...
+LLM_API_KEY=sk-proj-...
 
 # Opsiyonel — Make.com webhook URL'leri
 MAKE_WEBHOOK_INTERVIEW_URL=
@@ -117,7 +117,7 @@ podman compose up --build -d
 
 | Değişken | Zorunlu | Açıklama |
 |---|---|---|
-| `OPENAI_API_KEY` | ✅ | OpenAI API anahtarı |
+| `LLM_API_KEY` | ✅ | OpenAI API anahtarı |
 | `DATABASE_URL` | ❌ | Container içinde otomatik ayarlanır — elle girmeyin |
 | `MAKE_WEBHOOK_INTERVIEW_URL` | ❌ | Mülakat tamamlandığında tetiklenir |
 | `MAKE_WEBHOOK_ANALYSIS_URL` | ❌ | Analiz tamamlandığında tetiklenir |

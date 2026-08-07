@@ -24,7 +24,7 @@ import { validateFullResearchBrief } from '@/lib/ai-guards/brief-validator'
 import { validateStructuredAnalysis } from '@/lib/ai-guards/analysis-validator'
 import type { OpenAIAgentConfig, ValidationResult } from '@/types/index'
 
-// .env.local'ı yükle (OPENAI_API_KEY buradan okunur)
+// .env.local'ı yükle (LLM_API_KEY buradan okunur)
 config({ path: '.env.local' })
 
 // ---------------------------------------------------------------------------
@@ -308,14 +308,14 @@ async function main(): Promise<void> {
   console.log(`${BOLD}  MomTest AI — Offline Eval Harness${RESET}`)
   console.log(`${BOLD}═══════════════════════════════════════${RESET}`)
 
-  if (!process.env.OPENAI_API_KEY) {
-    console.error(`\n${RED}HATA: OPENAI_API_KEY bulunamadı. .env.local dosyasını kontrol edin.${RESET}\n`)
+  if (!process.env.LLM_API_KEY) {
+    console.error(`\n${RED}HATA: LLM_API_KEY bulunamadı. .env.local dosyasını kontrol edin.${RESET}\n`)
     process.exit(1)
   }
 
   const agentConfig = loadAgentConfig()
   const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: process.env.LLM_API_KEY,
     baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
   })
 

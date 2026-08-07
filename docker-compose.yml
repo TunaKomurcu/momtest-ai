@@ -3,7 +3,7 @@
 # =============================================================================
 # Kullanım:
 #   1. cp .env.example .env.local
-#   2. .env.local içini doldurun (DATABASE_URL, OPENAI_API_KEY, vb.)
+#   2. .env.local içini doldurun (DATABASE_URL, LLM_API_KEY, vb.)
 #   3. podman-compose up --build   (veya: docker compose up --build)
 #
 # Servisler:

@@ -22,7 +22,7 @@ COPY . .
 
 # Build sırasında placeholder değerler — gerçek secret gerekmez
 ENV DATABASE_URL=postgres://placeholder:placeholder@placeholder:5432/placeholder
-ENV OPENAI_API_KEY=sk-placeholder
+ENV LLM_API_KEY=sk-placeholder
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build

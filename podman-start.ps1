@@ -33,7 +33,7 @@ function Set-PodmanPortProxy {
 if (-not (Test-Path ".env.local")) {
     Write-Host "⚠  .env.local bulunamadi. .env.example'dan kopyalaniyor..." -ForegroundColor Yellow
     Copy-Item ".env.example" ".env.local"
-    Write-Host "✖  Lutfen .env.local dosyasini duzenleyin (OPENAI_API_KEY, vs.) ve tekrar calistirin." -ForegroundColor Red
+    Write-Host "✖  Lutfen .env.local dosyasini duzenleyin (LLM_API_KEY, vs.) ve tekrar calistirin." -ForegroundColor Red
     exit 1
 }
 

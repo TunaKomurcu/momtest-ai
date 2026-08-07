@@ -257,7 +257,7 @@ export async function POST(
 
   const agentConfig = loadOpenAIConfig()
   const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: process.env.LLM_API_KEY,
     baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
   })
 
@@ -266,9 +266,9 @@ export async function POST(
     .join('\n')
 
   // ---------------------------------------------------------------------------
-  // DEMO MODE — OPENAI_API_KEY yoksa veya DEMO_MODE=true ise mock stream döner
+  // DEMO MODE — LLM_API_KEY yoksa veya DEMO_MODE=true ise mock stream döner
   // ---------------------------------------------------------------------------
-  const isDemoMode = process.env.DEMO_MODE === 'true' || !process.env.OPENAI_API_KEY
+  const isDemoMode = process.env.DEMO_MODE === 'true' || !process.env.LLM_API_KEY
 
   if (isDemoMode) {
     const mockBrief = {

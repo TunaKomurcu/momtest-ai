@@ -110,7 +110,7 @@ cp .env.example .env.local
 Fill in `.env.local`:
 
 ```bash
-OPENAI_API_KEY=sk-proj-...
+LLM_API_KEY=sk-proj-...
 # DATABASE_URL is set automatically inside the container — do not fill in
 MAKE_WEBHOOK_INTERVIEW_URL=   # optional
 MAKE_WEBHOOK_ANALYSIS_URL=    # optional
@@ -209,7 +209,7 @@ Data is persisted in a named volume (`momtest2_postgres_data`). Drizzle migratio
 
 | Variable | Required | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | ✅ | OpenAI (or compatible) API key |
+| `LLM_API_KEY` | ✅ | OpenAI (or compatible) API key |
 | `DATABASE_URL` | — | Set automatically inside the container |
 | `MAKE_WEBHOOK_INTERVIEW_URL` | optional | Fired when an interview completes |
 | `MAKE_WEBHOOK_ANALYSIS_URL` | optional | Fired when analysis completes |
@@ -217,7 +217,7 @@ Data is persisted in a named volume (`momtest2_postgres_data`). Drizzle migratio
 
 ### Vercel (alternative)
 
-The app can also be deployed to Vercel with a hosted PostgreSQL database (Neon, Railway, Supabase DB, etc.). Set `DATABASE_URL` and `OPENAI_API_KEY` in the Vercel project settings and deploy from the main branch. Run migrations manually before first deploy:
+The app can also be deployed to Vercel with a hosted PostgreSQL database (Neon, Railway, Supabase DB, etc.). Set `DATABASE_URL` and `LLM_API_KEY` in the Vercel project settings and deploy from the main branch. Run migrations manually before first deploy:
 
 ```bash
 DATABASE_URL=<your-hosted-db-url> npx drizzle-kit push

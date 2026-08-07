@@ -202,7 +202,7 @@ All four API routes use the OpenAI SDK configured with a swappable provider:
 
 ```typescript
 new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: process.env.LLM_API_KEY,
   baseURL: agentConfig.model?.base_url,  // from openai.yaml
 })
 ```
@@ -255,7 +255,7 @@ podman compose up --build
 
 | Variable | Required | Set by |
 |---|---|---|
-| `OPENAI_API_KEY` | ✅ | `.env.local` |
+| `LLM_API_KEY` | ✅ | `.env.local` |
 | `DATABASE_URL` | — | `docker-compose.yml` (overrides `.env.local`) |
 | `MAKE_WEBHOOK_INTERVIEW_URL` | optional | `.env.local` |
 | `MAKE_WEBHOOK_ANALYSIS_URL` | optional | `.env.local` |

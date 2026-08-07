@@ -281,7 +281,7 @@ export async function checkAnswerIsVague(
 ): Promise<VaguenessCheckResult> {
   const config = agentConfig ?? loadAgentConfig()
   const client = openai ?? new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: process.env.LLM_API_KEY,
     baseURL: config.model?.base_url ?? 'https://api.groq.com/openai/v1',
   })
 

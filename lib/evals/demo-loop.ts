@@ -154,14 +154,14 @@ async function main() {
   log(`${BOLD}  LOOP DEMO — Retry Mekanizması Canlı Gösterimi${RESET}`)
   log(`${BOLD}${'═'.repeat(55)}${RESET}`)
 
-  if (!process.env.OPENAI_API_KEY) {
-    log(`${RED}HATA: OPENAI_API_KEY bulunamadı.${RESET}`)
+  if (!process.env.LLM_API_KEY) {
+    log(`${RED}HATA: LLM_API_KEY bulunamadı.${RESET}`)
     process.exit(1)
   }
 
   const agentConfig = loadAgentConfig()
   const realOpenAI = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: process.env.LLM_API_KEY,
     baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
   })
 
