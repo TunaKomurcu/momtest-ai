@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
+    "@langchain/core": "0.3.62",
+    "@langchain/langgraph": "0.2.42",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.44.2",

@@ -6,22 +6,13 @@ import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
-import { callWithJsonRetry, parseAndClean } from '@/lib/ai-guards/json-retry'
-import { validateStructuredAnalysis } from '@/lib/ai-guards/analysis-validator'
-import { verifyGrounding, issuesToWarnings } from '@/lib/ai-guards/grounding-verifier'
-import { checkDecisionConsistency } from '@/lib/decision-consistency-checker'
+import { buildAnalyzeGraph, buildInitialAnalyzeState } from '@/lib/graphs/analyze-graph'
 import type {
   ApiResponse,
   OpenAIAgentConfig,
   AnalyzeResponseData,
   AnalysisCompletedWebhookPayload,
-  SignalScore,
   SignalSummary,
-  StructuredAnalysis,
-  StrongSignalEntry,
-  MediumSignalEntry,
-  WeakSignalEntry,
-  NegativeSignalEntry,
 } from '@/types/index'
 
 // ---------------------------------------------------------------------------
@@ -48,7 +39,7 @@ function checkRateLimit(ip: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Evidence Analyst system prompt — SKILL.md Skill 6 + evidence-rubric.md
+// Evidence Analyst system prompt — ilk LLM çağrısı için (graph retry'larında da kullanılır)
 // ---------------------------------------------------------------------------
 
 const EVIDENCE_ANALYST_SYSTEM_PROMPT = `You are a strict customer-discovery analyst trained in Mom Test principles.
@@ -156,117 +147,6 @@ function loadAgentConfig(): Partial<OpenAIAgentConfig> {
   }
 }
 
-function buildSignalScore(analysis: StructuredAnalysis): SignalScore {
-  return {
-    strong: analysis.strongEvidence.map((e): StrongSignalEntry => ({
-      quote: e.quote,
-      message_id: e.message_id,
-      whyItMatters: e.whyItMatters,
-    })),
-    medium: analysis.mediumEvidence.map((e): MediumSignalEntry => ({
-      quote: e.quote,
-      message_id: e.message_id,
-      context: e.context,
-    })),
-    weak: analysis.weakEvidence.map((e): WeakSignalEntry => ({
-      quote: e.quote,
-      message_id: e.message_id,
-      whyItIsWeak: e.whyItIsWeak,
-    })),
-    negative: analysis.negativeEvidence.map((e): NegativeSignalEntry => ({
-      quote: e.quote,
-      message_id: e.message_id,
-      whyItIsNegative: e.whyItIsNegative,
-    })),
-  }
-}
-
-function buildSignalSummary(analysis: StructuredAnalysis): SignalSummary {
-  return {
-    strong_count: analysis.strongEvidence.length,
-    medium_count: analysis.mediumEvidence.length,
-    weak_count: analysis.weakEvidence.length,
-    negative_count: analysis.negativeEvidence.length,
-  }
-}
-
-function buildMarkdownReport(
-  analysis: StructuredAnalysis,
-  participantName: string
-): string {
-  const lines: string[] = []
-
-  lines.push('# Mom Test Evidence Report')
-  lines.push('')
-  lines.push(`**Participant:** ${participantName}`)
-  lines.push('')
-  lines.push('## Decision')
-  lines.push(analysis.decision)
-  lines.push('')
-  lines.push('## Summary')
-  lines.push(analysis.summary)
-  lines.push('')
-  lines.push('## Signal score')
-  lines.push(`- problem evidence: ${analysis.signalScore.problemEvidence}`)
-  lines.push(`- urgency: ${analysis.signalScore.urgency}`)
-  lines.push(`- workaround evidence: ${analysis.signalScore.workaroundEvidence}`)
-  lines.push(`- budget or commitment: ${analysis.signalScore.budgetOrCommitment}`)
-  lines.push('')
-
-  if (analysis.strongEvidence.length > 0) {
-    lines.push('## Strong evidence')
-    lines.push('| Quote or observation | Why it matters |')
-    lines.push('|---|---|')
-    analysis.strongEvidence.forEach((e) => {
-      lines.push(`| ${e.quote} | ${e.whyItMatters} |`)
-    })
-    lines.push('')
-  }
-
-  if (analysis.mediumEvidence.length > 0) {
-    lines.push('## Medium evidence')
-    lines.push('| Quote or observation | Context |')
-    lines.push('|---|---|')
-    analysis.mediumEvidence.forEach((e) => {
-      lines.push(`| ${e.quote} | ${e.context} |`)
-    })
-    lines.push('')
-  }
-
-  if (analysis.weakEvidence.length > 0) {
-    lines.push('## Weak or misleading evidence')
-    lines.push('| Quote or observation | Why it is weak |')
-    lines.push('|---|---|')
-    analysis.weakEvidence.forEach((e) => {
-      lines.push(`| ${e.quote} | ${e.whyItIsWeak} |`)
-    })
-    lines.push('')
-  }
-
-  if (analysis.negativeEvidence.length > 0) {
-    lines.push('## Negative evidence')
-    lines.push('| Quote or observation | Why it is negative |')
-    lines.push('|---|---|')
-    analysis.negativeEvidence.forEach((e) => {
-      lines.push(`| ${e.quote} | ${e.whyItIsNegative} |`)
-    })
-    lines.push('')
-  }
-
-  if (analysis.openQuestions.length > 0) {
-    lines.push('## Open questions')
-    analysis.openQuestions.forEach((q, i) => {
-      lines.push(`${i + 1}. ${q}`)
-    })
-    lines.push('')
-  }
-
-  lines.push('## Recommended next step')
-  lines.push(analysis.recommendedNextStep)
-
-  return lines.join('\n')
-}
-
 // ---------------------------------------------------------------------------
 // POST handler
 // ---------------------------------------------------------------------------
@@ -309,10 +189,10 @@ export async function POST(
   try {
     const rows = await db
       .select({
-        id: interviews.id,
-        project_id: interviews.project_id,
+        id:               interviews.id,
+        project_id:       interviews.project_id,
         participant_name: interviews.participant_name,
-        status: interviews.status,
+        status:           interviews.status,
       })
       .from(interviews)
       .where(eq(interviews.id, interviewId))
@@ -373,9 +253,9 @@ export async function POST(
   try {
     messageRows = await db
       .select({
-        id: messages.id,
-        sender: messages.sender,
-        content: messages.content,
+        id:         messages.id,
+        sender:     messages.sender,
+        content:    messages.content,
         created_at: messages.created_at,
       })
       .from(messages)
@@ -407,17 +287,21 @@ export async function POST(
   // --- Agent config ---
   const agentConfig = loadAgentConfig()
   const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
+    apiKey:   process.env.OPENAI_API_KEY,
+    baseURL:  agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
   })
 
-  // --- LLM çağrısı ---
-  let rawAnalysis: string
+  // ---------------------------------------------------------------------------
+  // ADIM 1: İlk LLM çağrısı — ham analiz çıktısını al
+  // Parse / validate / grounding / consistency / db-save → graph'ta yönetilir
+  // ---------------------------------------------------------------------------
+
+  let rawAnalysisOutput: string
   try {
     const completion = await openai.chat.completions.create({
-      model: agentConfig.model?.name ?? 'gemini-flash-latest',
+      model:       agentConfig.model?.name ?? 'gemini-flash-latest',
       temperature: 0.2,
-      max_tokens: agentConfig.model?.max_tokens ?? 2048,
+      max_tokens:  agentConfig.model?.max_tokens ?? 2048,
       messages: [
         { role: 'system', content: EVIDENCE_ANALYST_SYSTEM_PROMPT },
         {
@@ -427,9 +311,9 @@ export async function POST(
       ],
     })
 
-    rawAnalysis = completion.choices[0]?.message?.content?.trim() ?? ''
+    rawAnalysisOutput = completion.choices[0]?.message?.content?.trim() ?? ''
 
-    if (!rawAnalysis) {
+    if (!rawAnalysisOutput) {
       throw new Error('LLM boş yanıt döndürdü.')
     }
   } catch (err) {
@@ -440,193 +324,51 @@ export async function POST(
     )
   }
 
-  // --- Analiz çıktısını parse + validate + retry ---
-  let analysis: StructuredAnalysis | null = parseAndClean<StructuredAnalysis>(rawAnalysis)
+  // ---------------------------------------------------------------------------
+  // ADIM 2+: Graph — parse → validate → retry → grounding → consistency → db
+  // ---------------------------------------------------------------------------
 
-  if (analysis !== null) {
-    // Parse başarılı — validation yap, fail ederse retry
-    const analysisValidation = validateStructuredAnalysis(analysis)
-    if (!analysisValidation.ok) {
-      console.warn('[Analyze] İlk çıktı validation\'ı geçemedi, retry başlıyor. Issues:', analysisValidation.issues)
-      analysis = await callWithJsonRetry<StructuredAnalysis>(
-        openai,
-        {
-          model: agentConfig.model?.name ?? 'gemini-flash-latest',
-          temperature: 0.2,
-          max_tokens: agentConfig.model?.max_tokens ?? 2048,
-          stream: false,
-          messages: [
-            { role: 'system', content: EVIDENCE_ANALYST_SYSTEM_PROMPT },
-            {
-              role: 'user',
-              content: `Participant name: ${interview.participant_name}\n\nInterview transcript:\n${transcript}`,
-            },
-          ],
-        },
-        validateStructuredAnalysis,
-        '[Analyze]'
-      )
-    }
-  } else {
-    // Parse başarısız — retry hem parse hem validate için
-    console.warn('[Analyze] İlk çıktı JSON parse edilemedi, retry başlıyor.')
-    analysis = await callWithJsonRetry<StructuredAnalysis>(
-      openai,
-      {
-        model: agentConfig.model?.name ?? 'gemini-flash-latest',
-        temperature: 0.2,
-        max_tokens: agentConfig.model?.max_tokens ?? 2048,
-        stream: false,
-        messages: [
-          { role: 'system', content: EVIDENCE_ANALYST_SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content: `Participant name: ${interview.participant_name}\n\nInterview transcript:\n${transcript}`,
-          },
-        ],
-      },
-      validateStructuredAnalysis,
-      '[Analyze]'
-    )
-  }
+  const groundingMessages = messageRows.map((m) => ({ id: m.id, content: m.content }))
 
-  if (!analysis) {
+  const graph        = buildAnalyzeGraph(agentConfig)
+  const initialState = buildInitialAnalyzeState(
+    interviewId,
+    interview.project_id,
+    interview.participant_name,
+    transcript,
+    groundingMessages,
+    rawAnalysisOutput
+  )
+
+  const finalState = await graph.invoke(initialState)
+
+  // Graph analiz üretemedi
+  if (!finalState.parsedAnalysis) {
     return NextResponse.json(
       { data: null, error: 'Analiz sonucu işlenemedi. Lütfen tekrar deneyin.' },
       { status: 500 }
     )
   }
 
-  // ---------------------------------------------------------------------------
-  // Grounding verification — alıntıları transkripte karşı doğrula (deterministik)
-  // ---------------------------------------------------------------------------
-
-  // messageRows zaten mevcut — ek DB sorgusu yok
-  const groundingMessages = messageRows.map(m => ({ id: m.id, content: m.content }))
-
-  let groundingIssues = verifyGrounding(analysis, groundingMessages)
-
-  if (groundingIssues.length > 0) {
-    console.warn(
-      `[Analyze/grounding] ${groundingIssues.length} sorun bulundu, LLM retry başlıyor`
-    )
-
-    // LLM'e grounding hatasını açıklayan bir mesajla yeniden üretim yaptır
-    const ungroundedQuotes = groundingIssues
-      .map(i => `- "${i.quote.slice(0, 80)}" (${i.reason})`)
-      .join('\n')
-
-    const groundingRetryMessages: Parameters<typeof callWithJsonRetry>[1]['messages'] = [
-      { role: 'system', content: EVIDENCE_ANALYST_SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: `Participant name: ${interview.participant_name}\n\nInterview transcript:\n${transcript}`,
-      },
-      {
-        role: 'assistant',
-        content: JSON.stringify(analysis),
-      },
-      {
-        role: 'user',
-        content: `The following quotes could NOT be found in the transcript above. Please revise the analysis and use ONLY quotes that appear verbatim or near-verbatim in the transcript. Do not invent or paraphrase beyond recognition.\n\nProblematic quotes:\n${ungroundedQuotes}\n\nReturn the complete corrected JSON analysis.`,
-      },
-    ]
-
-    const retriedAnalysis = await callWithJsonRetry<typeof analysis>(
-      openai,
-      {
-        model:       agentConfig.model?.name ?? 'gemini-flash-latest',
-        temperature: 0.1,
-        max_tokens:  agentConfig.model?.max_tokens ?? 2048,
-        stream:      false,
-        messages:    groundingRetryMessages,
-      },
-      validateStructuredAnalysis,
-      '[Analyze/grounding]'
-    )
-
-    if (retriedAnalysis) {
-      // Retry sonrası tekrar doğrula
-      const retriedIssues = verifyGrounding(retriedAnalysis, groundingMessages)
-
-      if (retriedIssues.length < groundingIssues.length) {
-        console.log(
-          `[Analyze/grounding] Retry gelişme sağladı: ${groundingIssues.length} → ${retriedIssues.length} sorun`
-        )
-      }
-
-      analysis = retriedAnalysis
-      groundingIssues = retriedIssues
-    } else {
-      console.warn('[Analyze/grounding] Retry başarısız — orijinal analiz kullanılıyor')
-    }
-
-    // Kalan sorunları groundingWarnings olarak işaretle — bloklama yok, şeffaflık var
-    if (groundingIssues.length > 0) {
-      analysis = { ...analysis, groundingWarnings: issuesToWarnings(groundingIssues) }
-      console.warn(
-        `[Analyze/grounding] ${groundingIssues.length} sorun hâlâ mevcut, groundingWarnings eklendi`
-      )
-    }
-  }
-
-  const consistencyWarnings = checkDecisionConsistency(analysis)
-  if (consistencyWarnings.length > 0) {
-    analysis = {
-      ...analysis,
-      consistencyWarnings: [
-        ...(analysis.consistencyWarnings ?? []),
-        ...consistencyWarnings,
-      ],
-    }
-  }
-
-  // --- JSONB yapılarını türet ---
-  const signalScore = buildSignalScore(analysis)
-  const signalSummary = buildSignalSummary(analysis)
-  const markdownReport = buildMarkdownReport(analysis, interview.participant_name)
-
-  // --- interviews.signal_score + evidence_report kaydet ---
-  let signalScoreSaved = false
-  let evidenceReportSaved = false
-
-  try {
-    await db
-      .update(interviews)
-      .set({
-        signal_score: signalScore,
-        evidence_report: markdownReport,
-        analysis_json: analysis,
-        analyzed_at: new Date(),
-        updated_at: new Date(),
-      })
-      .where(eq(interviews.id, interviewId))
-
-    signalScoreSaved = true
-    evidenceReportSaved = true
-  } catch (err) {
-    console.error('[Analyze] Interview güncelleme başarısız:', err)
-  }
-
   // --- Make.com webhook — fire-and-forget ---
   const webhookUrl = process.env.MAKE_WEBHOOK_ANALYSIS_URL
-  if (webhookUrl) {
+  if (webhookUrl && finalState.signalSummary) {
     const webhookPayload: AnalysisCompletedWebhookPayload = {
-      event: 'analysis_completed',
-      interview_id: interviewId,
-      project_id: interview.project_id,
+      event:            'analysis_completed',
+      interview_id:     interviewId,
+      project_id:       interview.project_id,
       participant_name: interview.participant_name,
-      signal_summary: signalSummary,
-      decision: analysis.decision,
-      analyzed_at: new Date().toISOString(),
+      signal_summary:   finalState.signalSummary as SignalSummary,
+      decision:         finalState.parsedAnalysis.decision,
+      analyzed_at:      new Date().toISOString(),
     }
 
     void (async () => {
       try {
         await fetch(webhookUrl, {
-          method: 'POST',
+          method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(webhookPayload),
+          body:    JSON.stringify(webhookPayload),
         })
       } catch (err) {
         console.error('[Analyze] Make.com webhook gönderilemedi:', err)
@@ -638,10 +380,10 @@ export async function POST(
   return NextResponse.json(
     {
       data: {
-        decision: analysis.decision,
-        signalSummary,
-        evidenceReportSaved,
-        signalScoreSaved,
+        decision:           finalState.parsedAnalysis.decision,
+        signalSummary:      finalState.signalSummary as SignalSummary,
+        evidenceReportSaved: finalState.evidenceReportSaved,
+        signalScoreSaved:   finalState.signalScoreSaved,
       },
       error: null,
     },
