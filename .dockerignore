@@ -1,0 +1,60 @@
+# =============================================================================
+# .dockerignore — Docker build context'ten hariç tutulacak dosyalar
+#
+# NEDEN ÖNEMLİ?
+# Docker build context tüm proje dizinini Docker daemon'a gönderir.
+# Bu dosya olmadan node_modules, .next cache gibi büyük dizinler
+# gereksiz yere gönderilir → build yavaşlar, layer cache bozulur.
+# =============================================================================
+
+# Git geçmişi — build için gereksiz, boyutu artırır
+.git
+.gitignore
+
+# Node modules — builder aşamasında npm ci ile yeniden kurulur
+node_modules
+
+# Next.js build cache — builder aşamasında yeniden oluşturulur
+.next
+
+# Ortam değişkenleri — GÜVENLİK: secret'lar image'a girmemeli
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# Test ve geliştirme araçları — production image'a girmemeli
+coverage
+__tests__
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# Kiro IDE ve editör dosyaları
+.kiro
+.vscode
+.idea
+
+# Dokümantasyon — runtime için gereksiz
+*.md
+!mom-test-customer-discovery/**/*.md
+
+# OS dosyaları
+.DS_Store
+Thumbs.db
+
+# Docker dosyaları — container içinde gereksiz
+Dockerfile*
+docker-compose*
+
+# Logs
+*.log
+npm-debug.log*
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Vitest / test coverage
+vitest.config.*

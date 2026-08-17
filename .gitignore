@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Kubernetes — secret dosyası asla commit edilmemeli
+# Gerçek değerler kubectl create secret ile verilir
+k8s/secret.yaml
