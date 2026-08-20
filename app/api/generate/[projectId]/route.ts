@@ -12,6 +12,10 @@ import type {
   ConversationMessage,
   GenerateStreamChunk,
 } from '@/types/index'
+import {
+  shouldUseMockLLM,
+  getMockGeneratePayload,
+} from '@/lib/llm/mock'
 
 // ---------------------------------------------------------------------------
 // Rate limiting — max 20 req/min per IP
@@ -220,6 +224,23 @@ export async function POST(
       JSON.stringify({ data: null, error: 'Bu proje için tamamlanmış intake mesajı bulunamadı.' }),
       { status: 400, headers: { 'Content-Type': 'application/json' } }
     )
+  }
+
+  if (shouldUseMockLLM()) {
+    const payload = getMockGeneratePayload(project.product_idea)
+
+    const stream = new ReadableStream({
+      start(controller) {
+        const mockText = JSON.stringify(payload)
+        const chunk = new TextEncoder().encode(`data: ${JSON.stringify({ stage: 'brief', content: mockText })}\n\n`)
+        controller.enqueue(chunk)
+        controller.close()
+      },
+    })
+
+    return new Response(stream, {
+      headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+    })
   }
 
   const agentConfig = loadOpenAIConfig()

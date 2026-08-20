@@ -36,10 +36,12 @@ cd /opt/momtest
 git clone https://github.com/YOUR_USERNAME/MomTestProject.git .
 
 # ── Environment variables ─────────────────────────────────────────────────
-# For production workloads, retrieve secrets from AWS SSM Parameter Store instead:
-#   aws ssm get-parameter --name /momtest/OPENAI_API_KEY --with-decryption --query Parameter.Value --output text
+# This first deployment intentionally uses mock mode because the goal is to learn
+# the EC2 + Docker deployment flow without creating a bill from a live LLM API.
+# For later stages, replace these with AWS Secrets Manager / SSM values.
 cat > /opt/momtest/.env << 'EOF'
-OPENAI_API_KEY=sk-proj-REPLACE_ME
+APP_LLM_MODE=mock
+OPENAI_API_KEY=
 NVCF_API_KEY=
 MAKE_WEBHOOK_INTERVIEW_URL=
 MAKE_WEBHOOK_ANALYSIS_URL=
@@ -48,12 +50,14 @@ EOF
 chmod 600 /opt/momtest/.env
 
 # ── Start application ─────────────────────────────────────────────────────
+set +u
 source /opt/momtest/.env
-export OPENAI_API_KEY
+set -u
 
 log "Building Docker image (this takes 3-5 minutes)..."
 docker-compose --profile app up -d --build
 
 log "Setup complete."
 log "Application available at: http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):3000"
+log "Mock mode is active; later set APP_LLM_MODE=live and inject real secrets via AWS Secrets Manager or SSM."
 log "Run database migrations: docker compose exec app npx drizzle-kit push"

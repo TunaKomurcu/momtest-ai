@@ -58,8 +58,9 @@ services:
       # DB bağlantısı docker network içinden — localhost değil, servis adı
       DATABASE_URL: postgresql://momtest:momtest@db:5432/momtest
       NODE_ENV: production
+      APP_LLM_MODE: ${APP_LLM_MODE:-mock}
       # Aşağıdaki değerleri .env.local'dan veya shell ortamından al
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       NVCF_API_KEY: ${NVCF_API_KEY:-}
       MAKE_WEBHOOK_INTERVIEW_URL: ${MAKE_WEBHOOK_INTERVIEW_URL:-}
       MAKE_WEBHOOK_ANALYSIS_URL: ${MAKE_WEBHOOK_ANALYSIS_URL:-}

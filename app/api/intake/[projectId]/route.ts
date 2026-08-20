@@ -27,6 +27,10 @@ import type {
   IntakeCompletionStatus,
   ResearchBrief,
 } from '@/types/index'
+import {
+  shouldUseMockLLM,
+  getMockIntakeReply,
+} from '@/lib/llm/mock'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -254,6 +258,30 @@ export async function POST(
   }
 
   // --- LLM config ---
+  if (shouldUseMockLLM()) {
+    const mockReply = getMockIntakeReply(project.product_idea)
+    const cleanReply = mockReply
+      .replace(/<research_brief>[\s\S]*?<\/research_brief>/g, '')
+      .trim()
+
+    try {
+      await db.insert(messages).values([
+        { interview_id: projectId, sender: 'participant', content: userMessage },
+        { interview_id: projectId, sender: 'agent', content: cleanReply },
+      ])
+    } catch (err) {
+      console.error('[Intake] Mock mode mesaj kaydı başarısız:', err)
+    }
+
+    return NextResponse.json({
+      data: {
+        reply: mockReply,
+        isComplete: true,
+      },
+      error: null,
+    })
+  }
+
   const agentConfig = loadOpenAIConfig()
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,

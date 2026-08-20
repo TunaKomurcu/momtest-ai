@@ -30,6 +30,10 @@ import type {
   InterviewCompletedWebhookPayload,
   InterviewScript,
 } from '@/types/index'
+import {
+  shouldUseMockLLM,
+  getMockInterviewReply,
+} from '@/lib/llm/mock'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -373,6 +377,26 @@ export async function POST(
   } catch (err) {
     console.error('[Interview] Mesaj geçmişi alınamadı:', err)
     history = []
+  }
+
+  if (shouldUseMockLLM()) {
+    const mockReply = getMockInterviewReply(userMessage)
+    try {
+      await db.insert(messages).values([
+        { interview_id: interviewId, sender: 'participant', content: userMessage },
+        { interview_id: interviewId, sender: 'agent', content: mockReply },
+      ])
+    } catch (err) {
+      console.error('[Interview] Mock mode mesaj kaydı başarısız:', err)
+    }
+
+    return NextResponse.json({
+      data: {
+        reply: mockReply,
+        isComplete: false,
+      },
+      error: null,
+    })
   }
 
   const agentConfig = loadAgentConfig()
