@@ -202,7 +202,7 @@ Next step:
 - Copy `aws/start-momtest-runtime.sh` to EC2, run it in `mock` mode, and continue with Step 4 database setup and migration validation.
 
 ### Step 4 — Postgres DB container and migration
-Status: In progress on EC2; database container readiness is verified, and migration/table verification is pending.
+Status: Complete on EC2. PostgreSQL container, secret URL authentication, migrations, and table verification passed.
 
 Required EC2 terminal sequence:
 - Create or reuse the Docker `app-net` network with the existing `172.18.0.0/16` design.
@@ -225,5 +225,24 @@ Correction:
 Next repair:
 - Create or update the `momtest` database role to match the username/password already stored in the `DATABASE_URL` secret, then rerun the committed SQL migrations.
 - The first role-repair command produced no success output and did not resolve authentication; subsequent migration attempts still failed with `password authentication failed for user "momtest"`.
-- `\dt` and `\d interviews` still show no application relations, so no migration data was created or lost.
+- Before the clean reset, `\dt` and `\d interviews` showed no application relations; no migration data was created or lost.
 - The next connection test used `psql "$DATABASE_URL"` directly on the EC2 host; the host shell expanded the unset variable before Docker, so `psql` attempted the local Unix socket. The secret value must be expanded inside the temporary PostgreSQL container.
+- The corrected inner-container connection test reached `db (172.18.0.2)` but still failed authentication for `momtest`.
+- The user confirmed that the current database contains no application data; `\dt` returned no relations. A clean DB volume reset is therefore authorized before retrying Step 4.
+
+Clean reset plan:
+- Stop and remove only the empty `momtest-db` container and its `momtest-postgres-data` volume.
+- Recreate PostgreSQL with user `momtest` and the password extracted from the existing `DATABASE_URL` secret, preserving the `app-net` network and `db` alias.
+- Verify the secret URL connection, then run both committed SQL migration files.
+
+Completed EC2 verification:
+- The empty `momtest-postgres-data` volume was reset as authorized; no application data was lost.
+- PostgreSQL was recreated with the `momtest` username and the password from the loaded `DATABASE_URL` secret.
+- Secret URL connection succeeded: database `momtest`, current user `momtest`.
+- Migration `0000_loud_micromax.sql` completed: three `CREATE TABLE` statements and the project foreign key succeeded.
+- Migration `0001_add_injection_count_to_interviews.sql` completed: `ALTER TABLE` succeeded.
+- `\dt` confirmed `projects`, `interviews`, and `messages` owned by `momtest`.
+- `\d interviews` confirmed the `injection_count` integer column with default `0`.
+
+Next step:
+- Step 5: build and run the production app container on `app-net` in mock mode, publishing host port 80 to container port 3000, then validate `/api/projects` from EC2.
