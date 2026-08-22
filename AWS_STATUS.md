@@ -213,4 +213,9 @@ Required EC2 terminal sequence:
 
 Execution note:
 - Remote execution from this local AWS user remains unavailable because `ssm:SendCommand` is denied, but the user successfully ran the commands through the interactive EC2 SSM terminal.
-- Migration has not yet been run, so Step 4 is not marked complete.
+- Database readiness is verified, but the first migration attempt failed before connecting to PostgreSQL.
+- Cause: `npm ci` inherited `NODE_ENV=production` from `/run/momtest-ai/app.env` and omitted the dev dependency `drizzle-kit`; `npx` then used a temporary package that could not load `drizzle.config.ts`.
+- No relations were created; `\dt` confirmed the database is still empty.
+
+Correction:
+- Run the migration helper with `npm ci --include=dev` so the repository's pinned `drizzle-kit` dependency is installed before `npx drizzle-kit push`.
