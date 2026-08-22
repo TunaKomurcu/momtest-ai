@@ -171,6 +171,7 @@ Status: Resources, exact-ARN policy, and secret values complete; runtime mock va
 Prepared files:
 - `aws/start-momtest-runtime.sh` fetches `momtest-ai/OPENAI_API_KEY` and `momtest-ai/DATABASE_URL` at runtime through the EC2 role and writes only an ephemeral `/run/momtest-ai/app.env` file.
 - `aws/momtest-ai-secrets-policy.json` contains the exact ARNs returned by AWS; no wildcard resource is permitted.
+- Both files were committed and pushed to `origin/feature/add-aws-podman` in commit `4e85482`.
 
 Created resources:
 - `momtest-ai/OPENAI_API_KEY`: `arn:aws:secretsmanager:eu-central-1:820140266422:secret:momtest-ai/OPENAI_API_KEY-6b4xda`
