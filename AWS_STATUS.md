@@ -162,6 +162,15 @@ Security decision:
 - No broad or wildcard SSM permission was added
 - The existing SSM interactive session remains usable, so the bootstrap can be pasted into that session; alternatively, grant the AWS user a narrowly scoped `ssm:SendCommand` permission for this instance and the `AWS-RunShellScript` document, then retry this step
 
+Additional EC2 verification:
+- Repository synchronized successfully to commit `a06dbdf`
+- `Dockerfile`, `aws/start-momtest-runtime.sh`, and `aws/momtest-ai-secrets-policy.json` are present on EC2
+- Runtime script completed in `mock` mode
+- Runtime environment file permissions are `600` at `/run/momtest-ai/app.env`
+- Docker container `momtest-db` is running from `postgres:16-alpine`
+- PostgreSQL `pg_isready` returned `accepting connections`
+- Database connection succeeded for database `momtest` as user `postgres`
+
 Next step:
 - Step 3: create the two Secrets Manager entries, attach an exact-ARN read-only policy, and use the runtime startup script to load values without committing secrets.
 
@@ -193,7 +202,7 @@ Next step:
 - Copy `aws/start-momtest-runtime.sh` to EC2, run it in `mock` mode, and continue with Step 4 database setup and migration validation.
 
 ### Step 4 — Postgres DB container and migration
-Status: Ready to execute on EC2, but remote execution is blocked because the local IAM user lacks `ssm:SendCommand`.
+Status: In progress on EC2; database container readiness is verified, and migration/table verification is pending.
 
 Required EC2 terminal sequence:
 - Create or reuse the Docker `app-net` network with the existing `172.18.0.0/16` design.
@@ -202,6 +211,6 @@ Required EC2 terminal sequence:
 - Run Drizzle migrations against the DB container hostname and verify `projects`, `interviews`, and `messages`.
 - The app container must use `DATABASE_URL` from the Secrets Manager-loaded runtime file, not a committed `.env` value.
 
-Execution blocker:
-- `aws ssm send-command` returned `AccessDeniedException` for `ssm:SendCommand` on `i-04033337a3ad94650`.
-- No Step 4 command was executed by this session; no migration or EC2 health result is claimed yet.
+Execution note:
+- Remote execution from this local AWS user remains unavailable because `ssm:SendCommand` is denied, but the user successfully ran the commands through the interactive EC2 SSM terminal.
+- Migration has not yet been run, so Step 4 is not marked complete.
