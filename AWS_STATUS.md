@@ -219,3 +219,11 @@ Execution note:
 
 Correction:
 - Run the migration helper with `npm ci --include=dev` so the repository's pinned `drizzle-kit` dependency is installed before `npx drizzle-kit push`.
+- The direct migration attempt showed `DATABASE_HOST=db` but PostgreSQL rejected user `momtest` because the container was initialized with `POSTGRES_USER=postgres`.
+- This is an authentication-configuration mismatch, not a network failure. The database currently has no application relations, and the repair must preserve the existing volume rather than recreate it.
+
+Next repair:
+- Create or update the `momtest` database role to match the username/password already stored in the `DATABASE_URL` secret, then rerun the committed SQL migrations.
+- The first role-repair command produced no success output and did not resolve authentication; subsequent migration attempts still failed with `password authentication failed for user "momtest"`.
+- `\dt` and `\d interviews` still show no application relations, so no migration data was created or lost.
+- The next connection test used `psql "$DATABASE_URL"` directly on the EC2 host; the host shell expanded the unset variable before Docker, so `psql` attempted the local Unix socket. The secret value must be expanded inside the temporary PostgreSQL container.
