@@ -13,7 +13,7 @@ FROM base AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev
+RUN npm ci
 
 # ── Stage 2: builder ───────────────────────────────────────────────────────
 FROM base AS builder

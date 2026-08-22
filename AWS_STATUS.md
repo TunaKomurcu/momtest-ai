@@ -235,6 +235,20 @@ Clean reset plan:
 - Recreate PostgreSQL with user `momtest` and the password extracted from the existing `DATABASE_URL` secret, preserving the `app-net` network and `db` alias.
 - Verify the secret URL connection, then run both committed SQL migration files.
 
+### Step 5 — App container build and run
+Status: Build blocked by a Dockerfile dependency-stage issue; fix prepared and pending EC2 retry.
+
+Observed EC2 failure:
+- `docker build -t momtest-ai:step5 .` reached `next build` but failed because `@tailwindcss/postcss` was unavailable.
+- Cause: the disposable `deps` stage used `npm ci --omit=dev`, while the production build requires build-time dev dependencies.
+
+Fix:
+- `Dockerfile` now uses `npm ci` in the build dependency stage. The final standalone runner image remains production-focused and does not copy the full build-stage `node_modules` directory.
+- The fix is being published to `feature/add-aws-podman`; EC2 must pull the new commit before rebuilding.
+
+Next step:
+- Pull the updated branch on EC2, rebuild `momtest-ai:step5`, run it on `app-net` with host port `80` mapped to container port `3000`, and validate `/api/projects` in mock mode.
+
 Completed EC2 verification:
 - The empty `momtest-postgres-data` volume was reset as authorized; no application data was lost.
 - PostgreSQL was recreated with the `momtest` username and the password from the loaded `DATABASE_URL` secret.
