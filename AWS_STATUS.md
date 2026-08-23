@@ -244,10 +244,16 @@ Observed EC2 failure:
 
 Fix:
 - `Dockerfile` now uses `npm ci` in the build dependency stage. The final standalone runner image remains production-focused and does not copy the full build-stage `node_modules` directory.
-- The fix is being published to `feature/add-aws-podman`; EC2 must pull the new commit before rebuilding.
+- The fix was published to `feature/add-aws-podman` in commit `89ee5d3`.
+
+EC2 build verification:
+- EC2 checkout reached commit `89ee5d3` successfully.
+- `sudo docker build -t momtest-ai:step5 .` completed successfully through all 20 build stages.
+- Production image `momtest-ai:step5` was created successfully.
+- No application container was running during this build check.
 
 Next step:
-- Pull the updated branch on EC2, rebuild `momtest-ai:step5`, run it on `app-net` with host port `80` mapped to container port `3000`, and validate `/api/projects` in mock mode.
+- Run `momtest-ai:step5` on `app-net` with host port `80` mapped to container port `3000`, and validate `/api/projects` in mock mode.
 
 Completed EC2 verification:
 - The empty `momtest-postgres-data` volume was reset as authorized; no application data was lost.
