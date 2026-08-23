@@ -313,10 +313,11 @@ RDS infrastructure provisioning:
 - Endpoint: `momtest-ai-db.cp40smi6qgtw.eu-central-1.rds.amazonaws.com:5432`.
 - Configuration verified: PostgreSQL `16.13`, `db.t3.micro`, `PubliclyAccessible=false`, `MultiAZ=false`, `StorageEncrypted=true`.
 - AWS Free Tier rejected backup retention `7`; the instance was created with retention `0` to satisfy the account restriction. The EC2 `pg_dump` backup remains the migration rollback copy.
+- Known limitation: backup retention is `0` because of the Free Tier restriction. Retention must be enabled when real user data accumulates or the Free Tier period ends.
 - The RDS master password was generated during creation and was not printed or committed. Before schema push, it must be safely reset and the `momtest-ai/DATABASE_URL` secret updated with the RDS endpoint and matching password.
 
 Current gate:
-- RDS is `available` and the `momtest` database connection is verified, but schema push and production traffic cutover have not started. Stop here for approval before applying schema to RDS.
+- RDS is `available`, schema and data restore are verified, but production traffic cutover has not started. Stop here for approval before restarting the app against RDS.
 - The local AWS user cannot send SSM commands and this workstation does not expose `openssl`; password reset and secret update must therefore be run in the established EC2 SSM terminal using the commands supplied in the next step.
 - The first EC2 reset attempt was denied because `MomtestAiEc2Role` had no RDS modify or Secrets Manager write permission. A temporary inline policy `MomtestAiRdsCutoverTemporary` was added with exact resources only: the RDS instance ARN and the `DATABASE_URL` secret ARN. It must be removed after cutover.
 - The first retry then submitted an RDS password change, but the pasted Python heredoc was corrupted by shell prompt text. Verification showed `DATABASE_URL` still pointed to host `db` with the old 7-character password, so the secret update did not succeed.
@@ -327,6 +328,8 @@ Current gate:
 - RDS schema push completed from EC2 using the committed migration SQL files: three `CREATE TABLE` and two `ALTER TABLE` operations succeeded.
 - RDS schema verification completed: `\dt` shows `projects`, `interviews`, and `messages`, all owned by `momtest`.
 - RDS `\d interviews` confirms `injection_count` as an integer column with default `0`, plus the expected project foreign key.
+- RDS data restore completed from the EC2 database: the data-only dump was `1888` bytes with permissions `600`, and the original full backup remains at `/home/ec2-user/momtest-before-rds.sql`.
+- Restored row counts match the pre-RDS inventory: `projects=1`, `interviews=0`, `messages=2`.
 
 Completed EC2 verification:
 - The empty `momtest-postgres-data` volume was reset as authorized; no application data was lost.
@@ -338,4 +341,4 @@ Completed EC2 verification:
 - `\d interviews` confirmed the `injection_count` integer column with default `0`.
 
 Next step:
-- Restore the non-empty EC2 backup data into RDS, compare row counts, and stop for approval before changing production traffic.
+- Production cutover is the next gated step: restart the app with the RDS-backed secret, verify `/api/projects` from EC2 and externally, then stop but do not delete the Docker DB container.
