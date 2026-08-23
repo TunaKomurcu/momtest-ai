@@ -304,6 +304,20 @@ Step 7 pre-migration backup verification:
 Migration gate:
 - RDS creation has not started yet. Awaiting approval after this backup result before creating the RDS subnet/security-group configuration or applying schema to RDS.
 
+RDS infrastructure provisioning:
+- Approval was received and the RDS network resources were created.
+- RDS subnet group: `momtest-ai-db-subnet-group`, using the three subnets in `vpc-0215e307a2e691daa`.
+- RDS security group: `sg-04c5c42b3d51b36ab`.
+- RDS ingress is TCP 5432 from EC2 security group `sg-00e85fb37eaf3bd8e` only; no IP-based rule was used.
+- RDS instance: `momtest-ai-db`.
+- Endpoint: `momtest-ai-db.cp40smi6qgtw.eu-central-1.rds.amazonaws.com:5432`.
+- Configuration verified: PostgreSQL `16.13`, `db.t3.micro`, `PubliclyAccessible=false`, `MultiAZ=false`, `StorageEncrypted=true`.
+- AWS Free Tier rejected backup retention `7`; the instance was created with retention `0` to satisfy the account restriction. The EC2 `pg_dump` backup remains the migration rollback copy.
+- The RDS master password was generated during creation and was not printed or committed. Before schema push, it must be safely reset and the `momtest-ai/DATABASE_URL` secret updated with the RDS endpoint and matching password.
+
+Current gate:
+- RDS is `available`, but schema push and production traffic cutover have not started. Stop here for approval of the password reset/secret update and schema push sequence.
+
 Completed EC2 verification:
 - The empty `momtest-postgres-data` volume was reset as authorized; no application data was lost.
 - PostgreSQL was recreated with the `momtest` username and the password from the loaded `DATABASE_URL` secret.
