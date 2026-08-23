@@ -318,6 +318,7 @@ RDS infrastructure provisioning:
 Current gate:
 - RDS is `available`, but schema push and production traffic cutover have not started. Stop here for approval of the password reset/secret update and schema push sequence.
 - The local AWS user cannot send SSM commands and this workstation does not expose `openssl`; password reset and secret update must therefore be run in the established EC2 SSM terminal using the commands supplied in the next step.
+- The first EC2 reset attempt was denied because `MomtestAiEc2Role` had no RDS modify or Secrets Manager write permission. A temporary inline policy `MomtestAiRdsCutoverTemporary` was added with exact resources only: the RDS instance ARN and the `DATABASE_URL` secret ARN. It must be removed after cutover.
 
 Completed EC2 verification:
 - The empty `momtest-postgres-data` volume was reset as authorized; no application data was lost.
