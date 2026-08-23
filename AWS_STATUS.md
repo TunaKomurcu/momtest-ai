@@ -325,6 +325,8 @@ Current gate:
 - From the EC2 SSM terminal, the RDS default `postgres` database was used to create `momtest` owned by `momtest`.
 - The refreshed runtime secret then connected successfully to the RDS endpoint: `current_database=momtest`, `current_user=momtest`.
 - RDS schema push completed from EC2 using the committed migration SQL files: three `CREATE TABLE` and two `ALTER TABLE` operations succeeded.
+- RDS schema verification completed: `\dt` shows `projects`, `interviews`, and `messages`, all owned by `momtest`.
+- RDS `\d interviews` confirms `injection_count` as an integer column with default `0`, plus the expected project foreign key.
 
 Completed EC2 verification:
 - The empty `momtest-postgres-data` volume was reset as authorized; no application data was lost.
@@ -336,4 +338,4 @@ Completed EC2 verification:
 - `\d interviews` confirmed the `injection_count` integer column with default `0`.
 
 Next step:
-- Verify RDS tables with `\dt` and `\d interviews`; stop for approval before restoring the EC2 backup or changing production traffic.
+- Restore the non-empty EC2 backup data into RDS, compare row counts, and stop for approval before changing production traffic.
