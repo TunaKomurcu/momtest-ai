@@ -316,12 +316,14 @@ RDS infrastructure provisioning:
 - The RDS master password was generated during creation and was not printed or committed. Before schema push, it must be safely reset and the `momtest-ai/DATABASE_URL` secret updated with the RDS endpoint and matching password.
 
 Current gate:
-- RDS is `available`, but schema push and production traffic cutover have not started. Stop here for approval of the password reset/secret update and schema push sequence.
+- RDS is `available` and the `momtest` database connection is verified, but schema push and production traffic cutover have not started. Stop here for approval before applying schema to RDS.
 - The local AWS user cannot send SSM commands and this workstation does not expose `openssl`; password reset and secret update must therefore be run in the established EC2 SSM terminal using the commands supplied in the next step.
 - The first EC2 reset attempt was denied because `MomtestAiEc2Role` had no RDS modify or Secrets Manager write permission. A temporary inline policy `MomtestAiRdsCutoverTemporary` was added with exact resources only: the RDS instance ARN and the `DATABASE_URL` secret ARN. It must be removed after cutover.
 - The first retry then submitted an RDS password change, but the pasted Python heredoc was corrupted by shell prompt text. Verification showed `DATABASE_URL` still pointed to host `db` with the old 7-character password, so the secret update did not succeed.
 - The next retry submitted another password change, but its one-line Python f-string had nested-quote syntax errors. `DATABASE_URL_SECRET_UPDATED` was not reached; the secret remained unchanged at that point.
 - The corrected cutover updated `DATABASE_URL` to the RDS endpoint and RDS accepted the credentials, but the connection reported `database "momtest" does not exist`. This is expected because RDS creates the default database separately; schema push has not started.
+- From the EC2 SSM terminal, the RDS default `postgres` database was used to create `momtest` owned by `momtest`.
+- The refreshed runtime secret then connected successfully to the RDS endpoint: `current_database=momtest`, `current_user=momtest`.
 
 Completed EC2 verification:
 - The empty `momtest-postgres-data` volume was reset as authorized; no application data was lost.
@@ -333,4 +335,4 @@ Completed EC2 verification:
 - `\d interviews` confirmed the `injection_count` integer column with default `0`.
 
 Next step:
-- Step 5: build and run the production app container on `app-net` in mock mode, publishing host port 80 to container port 3000, then validate `/api/projects` from EC2.
+- Apply schema to RDS only after approval, then verify the three tables before restoring the EC2 backup.
