@@ -175,7 +175,7 @@ Next step:
 - Step 3: create the two Secrets Manager entries, attach an exact-ARN read-only policy, and use the runtime startup script to load values without committing secrets.
 
 ### Step 3 — Secrets Manager
-Status: Resources, exact-ARN policy, and secret values complete; runtime mock validation is pending on EC2.
+Status: Resources, exact-ARN policy, secret values, and live runtime secret loading complete.
 
 Prepared files:
 - `aws/start-momtest-runtime.sh` fetches `momtest-ai/OPENAI_API_KEY` and `momtest-ai/DATABASE_URL` at runtime through the EC2 role and writes only an ephemeral `/run/momtest-ai/app.env` file.
@@ -199,7 +199,30 @@ Tests performed:
 - Exact-ARN policy remains attached to `MomtestAiEc2Role`
 
 Next step:
-- Copy `aws/start-momtest-runtime.sh` to EC2, run it in `mock` mode, and continue with Step 4 database setup and migration validation.
+- Live mode is verified on EC2. Step 4 database migration and Step 5-6 deployment validation are recorded below; Step 7 RDS migration remains gated by approval.
+
+#### Live LLM Mode Verified
+Date: 2026-08-23
+
+What worked:
+- EC2 IAM role successfully read `momtest-ai/OPENAI_API_KEY` through `aws secretsmanager get-secret-value`; the key was redirected to `/dev/null` and was not printed.
+- `start-momtest-runtime.sh live` completed successfully and produced `/run/momtest-ai/app.env` with permission `600`.
+- `momtest-app` was restarted with the live runtime environment on the existing `app-net` network.
+- Test project created: `b547c9eb-7bc3-4fbd-9e2b-31f266224e2a`.
+- Live endpoint tested once: `POST /api/intake/b547c9eb-7bc3-4fbd-9e2b-31f266224e2a`.
+- Response was a context-specific follow-up question: `What specific challenges do you face when coordinating interviews through spreadsheets and chat?`
+- Response did not contain the mock marker `Mock mode is active`, and `LIVE_CHECK=passed_non_mock_reply` was returned.
+
+Commit/runtime note:
+- The production app image used for this test was built from commit `89ee5d3`.
+- The later live-default script commit is `e154669`; EC2 could not checkout that commit because the existing local script had uncommitted changes. The explicit `live` invocation nevertheless succeeded, so no secret was copied into the repository or image.
+
+Cost estimate:
+- One live intake request was made. The endpoint uses `gpt-4o-mini` with `max_tokens=1024`.
+- Exact token usage was not returned by this route, so the cost cannot be measured exactly from the response. Using the configured model's typical pricing as an estimate and approximately 330 input tokens plus 13 output tokens, the request is approximately `$0.00006` (well below one cent). Confirm the exact amount in the OpenAI usage dashboard.
+
+Next step:
+- Live mode is verified. Do not switch the database yet in the same validation step. Await approval before starting Step 7 RDS migration and first create the required `pg_dump` backup of the current Docker database.
 
 ### Step 4 — Postgres DB container and migration
 Status: Complete on EC2. PostgreSQL container, secret URL authentication, migrations, and table verification passed.
@@ -236,7 +259,7 @@ Clean reset plan:
 - Verify the secret URL connection, then run both committed SQL migration files.
 
 ### Step 5 — App container build and run
-Status: Build blocked by a Dockerfile dependency-stage issue; fix prepared and pending EC2 retry.
+Status: Complete on EC2 in mock mode; live mode was subsequently verified above.
 
 Observed EC2 failure:
 - `docker build -t momtest-ai:step5 .` reached `next build` but failed because `@tailwindcss/postcss` was unavailable.
@@ -256,7 +279,7 @@ EC2 build verification:
 - EC2-local `curl http://127.0.0.1/api/projects` returned HTTP `200 OK` with `{"data":[],"error":null}` in mock mode.
 
 Next step:
-- Step 5 is complete locally on EC2. Step 6: validate external access through the EC2 public IP on port 80.
+- Step 5 local and Step 6 external validation are complete. Live LLM mode is also verified; Step 7 RDS migration remains pending.
 
 ### Step 6 — Dışarıdan erişim doğrulama
 Status: Complete. The application is reachable through the EC2 public IP on port 80.
