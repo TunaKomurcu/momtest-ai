@@ -216,6 +216,7 @@ What worked:
 Commit/runtime note:
 - The production app image used for this test was built from commit `89ee5d3`.
 - The later live-default script commit is `e154669`; EC2 could not checkout that commit because the existing local script had uncommitted changes. The explicit `live` invocation nevertheless succeeded, so no secret was copied into the repository or image.
+- The checkout difference is limited to that local `aws/start-momtest-runtime.sh` change; the remaining repository state was at `89ee5d3`, so this is record consistency only and does not block the RDS migration.
 
 Cost estimate:
 - One live intake request was made. The endpoint uses `gpt-4o-mini` with `max_tokens=1024`.
