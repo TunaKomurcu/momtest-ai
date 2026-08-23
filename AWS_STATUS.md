@@ -250,10 +250,24 @@ EC2 build verification:
 - EC2 checkout reached commit `89ee5d3` successfully.
 - `sudo docker build -t momtest-ai:step5 .` completed successfully through all 20 build stages.
 - Production image `momtest-ai:step5` was created successfully.
-- No application container was running during this build check.
+- App container `momtest-app` started successfully from `momtest-ai:step5`.
+- Container is attached to `app-net` and publishes host port `80` to container port `3000`.
+- Container logs reported Next.js `16.2.9` ready on port `3000`.
+- EC2-local `curl http://127.0.0.1/api/projects` returned HTTP `200 OK` with `{"data":[],"error":null}` in mock mode.
 
 Next step:
-- Run `momtest-ai:step5` on `app-net` with host port `80` mapped to container port `3000`, and validate `/api/projects` in mock mode.
+- Step 5 is complete locally on EC2. Step 6: validate external access through the EC2 public IP on port 80.
+
+### Step 6 — Dışarıdan erişim doğrulama
+Status: Complete. The application is reachable through the EC2 public IP on port 80.
+
+Tests performed:
+- External request to `http://18.184.5.221/api/projects` returned HTTP `200`.
+- Response body was `{"data":[],"error":null}`.
+- No ALB or domain was used, as required for this stage.
+
+Next step:
+- Step 7: before creating RDS, verify the current Docker PostgreSQL volume and take a `pg_dump` backup. The current application data is empty, but the backup must still be created before changing the database target.
 
 Completed EC2 verification:
 - The empty `momtest-postgres-data` volume was reset as authorized; no application data was lost.
