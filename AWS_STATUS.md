@@ -293,6 +293,17 @@ Tests performed:
 Next step:
 - Step 7: before creating RDS, verify the current Docker PostgreSQL volume and take a `pg_dump` backup. The current application data is empty, but the backup must still be created before changing the database target.
 
+Step 7 pre-migration backup verification:
+- Backup created inside the `momtest-db` container and stored at `/home/ec2-user/momtest-before-rds.sql`.
+- Backup size: `4216` bytes (`8.0K` disk usage), permissions `600`.
+- Current row counts: `projects=1`, `interviews=0`, `messages=2`.
+- The backup contains `CREATE TABLE` and `COPY` sections for all three tables.
+- The database is not empty: the live-mode validation created one project and two messages. RDS migration must restore this backup; the restore step will not be skipped.
+- Backup remains on EC2 and has not been deleted.
+
+Migration gate:
+- RDS creation has not started yet. Awaiting approval after this backup result before creating the RDS subnet/security-group configuration or applying schema to RDS.
+
 Completed EC2 verification:
 - The empty `momtest-postgres-data` volume was reset as authorized; no application data was lost.
 - PostgreSQL was recreated with the `momtest` username and the password from the loaded `DATABASE_URL` secret.
