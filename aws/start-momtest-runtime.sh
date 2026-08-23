@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:-mock}"
+MODE="${1:-live}"
 REGION="${AWS_REGION:-eu-central-1}"
 SECRET_PREFIX="momtest-ai"
 RUNTIME_DIR="/run/momtest-ai"

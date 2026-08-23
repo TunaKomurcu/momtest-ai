@@ -190,7 +190,7 @@ Created resources:
 
 Security rules:
 - Secret values are not present in the repository or committed `.env` files.
-- The script defaults to `mock` mode for the first EC2 validation. `live` mode is enabled only after the mock deployment succeeds and `OPENAI_API_KEY` has been stored.
+- The script defaults to `live` mode now that mock deployment has succeeded and `OPENAI_API_KEY` is stored. Pass `mock` explicitly when a mock-only run is needed.
 - The database URL remains a secret and will be updated to the RDS endpoint during Step 7.
 
 Tests performed:
