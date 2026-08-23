@@ -321,6 +321,7 @@ Current gate:
 - The first EC2 reset attempt was denied because `MomtestAiEc2Role` had no RDS modify or Secrets Manager write permission. A temporary inline policy `MomtestAiRdsCutoverTemporary` was added with exact resources only: the RDS instance ARN and the `DATABASE_URL` secret ARN. It must be removed after cutover.
 - The first retry then submitted an RDS password change, but the pasted Python heredoc was corrupted by shell prompt text. Verification showed `DATABASE_URL` still pointed to host `db` with the old 7-character password, so the secret update did not succeed.
 - The next retry submitted another password change, but its one-line Python f-string had nested-quote syntax errors. `DATABASE_URL_SECRET_UPDATED` was not reached; the secret remained unchanged at that point.
+- The corrected cutover updated `DATABASE_URL` to the RDS endpoint and RDS accepted the credentials, but the connection reported `database "momtest" does not exist`. This is expected because RDS creates the default database separately; schema push has not started.
 
 Completed EC2 verification:
 - The empty `momtest-postgres-data` volume was reset as authorized; no application data was lost.
