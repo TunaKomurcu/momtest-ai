@@ -324,6 +324,7 @@ Current gate:
 - The corrected cutover updated `DATABASE_URL` to the RDS endpoint and RDS accepted the credentials, but the connection reported `database "momtest" does not exist`. This is expected because RDS creates the default database separately; schema push has not started.
 - From the EC2 SSM terminal, the RDS default `postgres` database was used to create `momtest` owned by `momtest`.
 - The refreshed runtime secret then connected successfully to the RDS endpoint: `current_database=momtest`, `current_user=momtest`.
+- RDS schema push completed from EC2 using the committed migration SQL files: three `CREATE TABLE` and two `ALTER TABLE` operations succeeded.
 
 Completed EC2 verification:
 - The empty `momtest-postgres-data` volume was reset as authorized; no application data was lost.
@@ -335,4 +336,4 @@ Completed EC2 verification:
 - `\d interviews` confirmed the `injection_count` integer column with default `0`.
 
 Next step:
-- Apply schema to RDS only after approval, then verify the three tables before restoring the EC2 backup.
+- Verify RDS tables with `\dt` and `\d interviews`; stop for approval before restoring the EC2 backup or changing production traffic.
