@@ -8,14 +8,16 @@ import { DashboardWorkspace } from '@/components/dashboard/dashboard-workspace'
 
 export default async function DashboardPage() {
   // Tüm projeleri çek
-  const projectRows = await db
-    .select()
-    .from(projects)
-    .orderBy(desc(projects.created_at))
-    .catch((err) => {
-      console.error('[Dashboard] Proje listesi alınamadı:', err)
-      return [] as Project[]
-    })
+  let projectRows: Project[] = []
+  try {
+    projectRows = await db
+      .select()
+      .from(projects)
+      .orderBy(desc(projects.created_at))
+    process.stdout.write(`[Dashboard] DB OK: ${projectRows.length} proje\n`)
+  } catch (err) {
+    process.stderr.write(`[Dashboard] DB HATA: ${String(err)}\n`)
+  }
 
   // Durum türetmek için ilgili mülakatları çek
   let interviewRows: Pick<Interview, 'project_id' | 'evidence_report' | 'signal_score'>[] = []
