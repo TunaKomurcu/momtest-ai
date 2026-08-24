@@ -1,4 +1,0 @@
-# pack-refs with: peeled fully-peeled sorted 
-8d1f0c18a8337a6b2a0388dba307d1f61d0734fe refs/heads/dev
-ff88b1a22c76f09d4c72044ebf8efd75bd133f6c refs/heads/feat/podman-containerization
-6bf319797225384b94febf3789c2c9f15f1169a2 refs/heads/master
