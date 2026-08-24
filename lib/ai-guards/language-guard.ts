@@ -33,11 +33,16 @@ export function detectLanguage(text: string): InterviewLanguage | null {
   const trimmed = text.trim()
   if (trimmed.length < 3) return null
 
+  // Türkçe özel karakter varsa kesin TR — EN'de bu karakterler hiç olmaz.
+  if (/[çğıöşüÇĞİÖŞÜ]/.test(trimmed)) return 'tr'
+
   const trScore = score(trimmed, TR_MARKERS)
   const enScore = score(trimmed, EN_MARKERS)
 
   if (trScore === 0 && enScore === 0) return null
-  if (trScore > enScore) return 'tr'
+  // TR lehine hafif ağırlık: eşit skorlarda TR'yi tercih et,
+  // çünkü ortak kelimeler (bir, bu, kim) Türkçede çok daha yaygın.
+  if (trScore >= enScore && trScore > 0) return 'tr'
   if (enScore > trScore) return 'en'
   return null
 }
