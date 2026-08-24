@@ -45,6 +45,23 @@ describe('detectLanguage', () => {
   it('TR ve EN işareti olmayan nötr metin → null', () => {
     expect(detectLanguage('Excel spreadsheet')).toBeNull()
   })
+
+  // ── Regresyon: eşit skor / Türkçe karakter önceliği ────────────────────────
+  // Production'da bir PM'in Türkçe mesajı, TR ve EN marker skorları eşit
+  // çıktığında yanlışlıkla 'en' olarak kilitleniyordu — bu da guard fallback'inin
+  // (aktif oturum Türkçe olsa bile) İngilizce dönmesine yol açan kök nedendi.
+
+  it('eşit TR/EN marker skorunda TR tercih edilir (regresyon)', () => {
+    // "bir" → 1 TR puanı, "you" → 1 EN puanı — tam eşitlik, Türkçe karakter yok.
+    expect(detectLanguage('bir you')).toBe('tr')
+  })
+
+  it('Türkçe karakter varsa EN skor daha yüksek olsa bile → tr (regresyon)', () => {
+    // "you", "are", "how" → 3 EN marker eşleşmesi; "çalışıyor" sadece özel
+    // karakteri (ç) taşıyor, kelime listesinde yok. Fix öncesi enScore(3) >
+    // trScore(1) olduğu için yanlışlıkla 'en' dönerdi.
+    expect(detectLanguage('you are how çalışıyor')).toBe('tr')
+  })
 })
 
 // ── resolveSessionLanguage ───────────────────────────────────────────────────

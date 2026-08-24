@@ -50,6 +50,13 @@ const BLOCKED_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\bbunu\s+satın\s+alır\s+mıydınız\b/i,                                         reason: 'Yasaklı (TR): "bunu satın alır mıydınız"' },
   { pattern: /\bkullanır\s+mıydınız\b/i,                                                    reason: 'Yasaklı (TR): "kullanır mıydınız"' },
   { pattern: /\bödeme\s+yapar\s+mıydınız\b/i,                                               reason: 'Yasaklı (TR): "ödeme yapar mıydınız"' },
+
+  // "Yani, ..." ile bağlanan ikinci soru — tek soru kuralı ihlali.
+  // Model retry'larda bu deseni tekrarlıyordu (bkz. intake-reply-guard.ts'deki
+  // aynı fix); interview route'ta da gözlemlenen aynı zafiyet — kural
+  // seviyesinde engellenir, isolated check'e kadar beklenmez.
+  { pattern: /\?\s*(yani|yani,|yani\s+)/i,                                                  reason: 'Çift soru: "? Yani ..." pattern\'i — tek soru kuralı ihlali' },
+  { pattern: /\?\s*(that\s+is|i\.e\.|in\s+other\s+words|specifically),?\s+/i,                reason: 'Double question: "? That is/i.e./In other words/Specifically" pattern' },
 ]
 
 /**
@@ -210,7 +217,7 @@ Evaluate against these rules:
    - Any question starting with "Would you..."
    - "do you think you'd", "hypothetically", "if this existed"
 3. Does it ask about future intentions or hypotheticals instead of past behavior? (forbidden)
-4. Does it ask more than one question at a time? (forbidden)
+4. Does it ask more than one question at a time? This includes a "clarifying" restatement appended after the first question with words like "Yani,", "That is,", "I.e.,", "In other words,", "Specifically," in any language — that always counts as a second question. (forbidden)
 5. Does it excessively validate or praise the participant ("That's amazing!", "Wow!")? (forbidden)
 6. Does it include any preamble, meta-commentary, or restatement of the research goal before the actual question — in any language (e.g. "My next question is:", "To better understand X...", "Bir sonraki sorum şu olacak:")? (forbidden)
 

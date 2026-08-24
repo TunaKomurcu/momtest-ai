@@ -21,6 +21,10 @@ import {
   matchesExpectedLanguage,
 } from '@/lib/ai-guards/language-guard'
 import {
+  CONTENT_VIOLATION_CORRECTION,
+  buildLanguageCorrection,
+} from '@/lib/ai-guards/retry-correction'
+import {
   isLikelyVague,
   isLikelyVagueWithConfidence,
   checkAnswerIsVague,
@@ -104,7 +108,9 @@ Turkish: "Vakit ayırdığınız için teşekkürler. Bu durumun sizin gerçek i
 Rules for "message":
 - Contains ONLY the question or reply itself. Nothing else.
 - NEVER include a lead-in, meta-commentary, restatement of the research goal, or phrases like "my next question is", "to better understand X, ...", "bir sonraki sorum şu olacak", "amacıyla".
-- Contains EXACTLY ONE question. Never ask two questions in the same message — no "and", "ayrıca", or a second question mark introducing a separate topic. At most ONE "?" character in the entire message.
+- Contains EXACTLY ONE question. Never ask two questions in the same message — no "and", "ayrıca", or a second question mark introducing a separate topic.
+- CRITICAL: NEVER clarify, rephrase, or expand on your question in the same turn (e.g., NEVER use "Yani, ...?", "In other words, ...?", "Specifically, ...?", "That is, ...?", "I.e., ...?" — in any language). This is the single most common failure mode: appending a "clarifying" restatement after the real question always produces a second question and is strictly forbidden.
+- Enforce EXACTLY ONE question mark ("?") in the entire message. Having two or more question marks is an immediate system violation, with no exceptions.
 - No markdown, no quotation marks wrapping the whole message, no XML/JSON tags inside the text.
 
 Rules for "language":
@@ -583,6 +589,10 @@ ${scriptContext}
   // ---------------------------------------------------------------------------
 
   let initialLanguageMismatch = false
+  // Retry döngüsünün başarısız denemeyi ve nedenini modele geri bildirmesi için
+  // — resending an unchanged prompt let the model repeat the identical
+  // "? Yani ...?" mistake on every retry (bkz. lib/ai-guards/retry-correction.ts).
+  let lastRawContent = ''
 
   if (!injectionDetected) {
     // ADIM 3: Interviewer LLM — structured output ile soru üret
@@ -596,6 +606,7 @@ ${scriptContext}
       })
       const rawContent = completion.choices[0]?.message?.content?.trim() ?? ''
       if (!rawContent) throw new Error('LLM boş yanıt döndürdü.')
+      lastRawContent = rawContent
 
       const parsedReply = parseInterviewReply(rawContent)
       if (!parsedReply) throw new Error('LLM yanıtı beklenen JSON şemasına uymuyor.')
@@ -658,9 +669,26 @@ ${scriptContext}
 
     if (needsRetry) {
       let accepted = false
+      // Bir önceki denemenin neden reddedildiği — retry'dan hemen önce modele
+      // eklenecek düzeltme direktifini belirler (bkz. lib/ai-guards/retry-correction.ts).
+      let lastFailureKind: 'language' | 'content' = initialLanguageMismatch ? 'language' : 'content'
 
       for (let attempt = 1; attempt <= MAX_INTERVIEW_GUARD_RETRIES; attempt++) {
-        console.warn(`[Interview/guard] Retry denemesi ${attempt}/${MAX_INTERVIEW_GUARD_RETRIES}`)
+        console.warn(`[Interview/guard] Retry denemesi ${attempt}/${MAX_INTERVIEW_GUARD_RETRIES} — düzeltme türü: ${lastFailureKind}`)
+
+        // Agresif düzeltme: başarısız cevabı assistant turn olarak geri yansıt,
+        // ardından tam olarak neyin düzeltilmesi gerektiğini söyle. Aynı prompt'u
+        // değişmeden yeniden göndermek modelin "? Yani ...?" hatasını her
+        // denemede birebir tekrarlamasına yol açıyordu.
+        llmMessages.push(
+          { role: 'assistant', content: lastRawContent },
+          {
+            role: 'user',
+            content: lastFailureKind === 'language'
+              ? buildLanguageCorrection(sessionLanguage)
+              : CONTENT_VIOLATION_CORRECTION,
+          }
+        )
 
         let candidateReply = ''
         let candidateIsClosing = false
@@ -674,9 +702,11 @@ ${scriptContext}
             response_format: INTERVIEW_REPLY_SCHEMA,
           })
           const rawCandidate = retryCompletion.choices[0]?.message?.content?.trim() ?? ''
+          lastRawContent = rawCandidate || lastRawContent
           const parsedCandidate = rawCandidate ? parseInterviewReply(rawCandidate) : null
           if (!parsedCandidate) {
             console.warn(`[Interview/guard] Retry ${attempt} JSON şemasına uymuyor veya boş`)
+            lastFailureKind = 'content'
             continue
           }
           candidateReply = parsedCandidate.message
@@ -690,6 +720,7 @@ ${scriptContext}
 
         if (candidateLanguageMismatch) {
           console.warn(`[Interview/guard] Retry ${attempt} LANGUAGE MISMATCH — bir sonraki denemeye geçiliyor`)
+          lastFailureKind = 'language'
           continue
         }
 
@@ -712,6 +743,7 @@ ${scriptContext}
 
         if (retryGuard.verdict === 'blocked') {
           console.warn(`[Interview/guard] Retry ${attempt} BLOCKED — bir sonraki denemeye geçiliyor`)
+          lastFailureKind = 'content'
           continue
         }
 
@@ -727,6 +759,7 @@ ${scriptContext}
         }
 
         console.warn(`[Interview/guard] Retry ${attempt} isolated check FAIL — ${retryCheck.reason}`)
+        lastFailureKind = 'content'
       }
 
       if (!accepted) {

@@ -18,6 +18,10 @@ import {
   matchesExpectedLanguage,
 } from '@/lib/ai-guards/language-guard'
 import {
+  CONTENT_VIOLATION_CORRECTION,
+  buildLanguageCorrection,
+} from '@/lib/ai-guards/retry-correction'
+import {
   isLikelyVague,
   isLikelyVagueWithConfidence,
   checkAnswerIsVague,
@@ -96,7 +100,9 @@ CRITICAL RULES — READ BEFORE RESPONDING:
 Rules for "message":
 - Contains ONLY the question or reply itself — no lead-in, no meta-commentary, no phrases like "My next question is:", "Here is my next question:", "Bir sonraki sorum şu olacak:", "Sorum:" or any similar preamble in any language.
 - Do NOT explain what you are about to ask. Just ask it directly. Do NOT number the question (no "1.", "Question 2:", etc.).
-- Contains EXACTLY ONE question. Never two questions in one message. At most ONE "?" character in the entire message, joined by no conjunction ("and", "also", "ve", "ayrıca") introducing a second question. NEVER append a clarifying restatement after the "?" with words like "Yani,", "Yani ", "That is,", "I.e.", "In other words" — this always counts as a second question and is forbidden.
+- Contains EXACTLY ONE question. Never two questions in one message, joined by no conjunction ("and", "also", "ve", "ayrıca") introducing a second question.
+- CRITICAL: NEVER clarify, rephrase, or expand on your question in the same turn (e.g., NEVER use "Yani, ...?", "In other words, ...?", "Specifically, ...?", "That is, ...?", "I.e., ...?" — in any language). This is the single most common failure mode: appending a "clarifying" restatement after the real question always produces a second question and is strictly forbidden.
+- Enforce EXACTLY ONE question mark ("?") in the entire message. Having two or more question marks is an immediate system violation, with no exceptions (the completed <research_brief> case below is the only exception to this whole section).
 - When you have gathered enough information to produce all the fields listed above, "message" contains a JSON block wrapped in <research_brief> tags followed by a brief confirmation sentence — this is the ONE exception to the single-question rule. Example value for "message":
 <research_brief>
 {
@@ -438,6 +444,9 @@ ${probeInstruction}
 
   let agentReply: string
   let initialLanguageMismatch = false
+  // Retry döngüsünün başarısız denemeyi ve nedenini modele geri bildirmesi için
+  // — bkz. lib/ai-guards/retry-correction.ts.
+  let lastRawContent = ''
   try {
     const completion = await openai.chat.completions.create({
       model: modelName,
@@ -448,6 +457,7 @@ ${probeInstruction}
     })
     const rawContent = completion.choices[0]?.message?.content?.trim() ?? ''
     if (!rawContent) throw new Error('LLM boş yanıt döndürdü.')
+    lastRawContent = rawContent
 
     const parsedReply = parseIntakeReply(rawContent)
     if (!parsedReply) throw new Error('LLM yanıtı beklenen JSON şemasına uymuyor.')
@@ -525,9 +535,26 @@ ${probeInstruction}
   // ── Retry döngüsü — MAX_GUARD_RETRIES kez dene, her adımda tam doğrula ──
   if (needsRetry) {
     let accepted = false
+    // Bir önceki denemenin neden reddedildiği — retry'dan hemen önce modele
+    // eklenecek düzeltme direktifini belirler (bkz. lib/ai-guards/retry-correction.ts).
+    let lastFailureKind: 'language' | 'content' = initialLanguageMismatch ? 'language' : 'content'
 
     for (let attempt = 1; attempt <= MAX_GUARD_RETRIES; attempt++) {
-      console.warn(`[Intake/guard] Retry denemesi ${attempt}/${MAX_GUARD_RETRIES}`)
+      console.warn(`[Intake/guard] Retry denemesi ${attempt}/${MAX_GUARD_RETRIES} — düzeltme türü: ${lastFailureKind}`)
+
+      // Agresif düzeltme: başarısız cevabı assistant turn olarak geri yansıt,
+      // ardından tam olarak neyin düzeltilmesi gerektiğini söyle. Aynı prompt'u
+      // değişmeden yeniden göndermek modelin "? Yani ...?" hatasını her
+      // denemede birebir tekrarlamasına yol açıyordu (production log kanıtı).
+      openaiMessages.push(
+        { role: 'assistant', content: lastRawContent },
+        {
+          role: 'user',
+          content: lastFailureKind === 'language'
+            ? buildLanguageCorrection(sessionLanguage)
+            : CONTENT_VIOLATION_CORRECTION,
+        }
+      )
 
       let candidateReply = ''
       let candidateIsComplete = false
@@ -541,9 +568,11 @@ ${probeInstruction}
           response_format: INTAKE_REPLY_SCHEMA,
         })
         const rawCandidate = retryCompletion.choices[0]?.message?.content?.trim() ?? ''
+        lastRawContent = rawCandidate || lastRawContent
         const parsedCandidate = rawCandidate ? parseIntakeReply(rawCandidate) : null
         if (!parsedCandidate) {
           console.warn(`[Intake/guard] Retry ${attempt} JSON şemasına uymuyor veya boş`)
+          lastFailureKind = 'content'
           continue
         }
         candidateReply = parsedCandidate.message
@@ -557,6 +586,7 @@ ${probeInstruction}
 
       if (candidateLanguageMismatch) {
         console.warn(`[Intake/guard] Retry ${attempt} LANGUAGE MISMATCH — bir sonraki denemeye geçiliyor`)
+        lastFailureKind = 'language'
         continue
       }
 
@@ -579,6 +609,7 @@ ${probeInstruction}
 
       if (retryGuard.verdict === 'blocked') {
         console.warn(`[Intake/guard] Retry ${attempt} BLOCKED — bir sonraki denemeye geçiliyor`)
+        lastFailureKind = 'content'
         continue
       }
 
@@ -595,6 +626,7 @@ ${probeInstruction}
       }
 
       console.warn(`[Intake/guard] Retry ${attempt} isolated check FAIL — ${retryCheck.reason}`)
+      lastFailureKind = 'content'
     }
 
     if (!accepted) {

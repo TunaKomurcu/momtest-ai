@@ -41,7 +41,7 @@ const BLOCKED_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // "Yani, ..." ile bağlanan ikinci soru — tek soru kuralı ihlali
   // Model her retry'da bu pattern'i üretiyor, kural seviyesinde engelle.
   { pattern: /\?\s*(yani|yani,|yani\s+)/i,           reason: 'Çift soru: "? Yani ..." pattern\'i — tek soru kuralı ihlali' },
-  { pattern: /\?\s*(that\s+is|i\.e\.|in\s+other\s+words),?\s+/i, reason: 'Double question: "? That is/i.e./In other words" pattern' },
+  { pattern: /\?\s*(that\s+is|i\.e\.|in\s+other\s+words|specifically),?\s+/i, reason: 'Double question: "? That is/i.e./In other words/Specifically" pattern' },
 ]
 
 /**
@@ -255,7 +255,7 @@ You have NO conversation history — only this one message.
 Evaluate against these rules:
 1. Does it endorse, validate, or praise the PM's idea? (forbidden)
 2. Does it ask the PM for their opinion or approval? (forbidden — PM is not a customer)
-3. Does it contain more than one question? (forbidden — one question at a time)
+3. Does it contain more than one question? This includes a "clarifying" restatement appended after the first question with words like "Yani,", "That is,", "I.e.,", "In other words,", "Specifically," in any language — that always counts as a second question. (forbidden — one question at a time)
 4. Is it longer than 200 words? (risky — intake answers must be short and focused)
 5. Does it inject the AI's personal opinion using "I think", "I believe"? (forbidden)
 6. Does it include any preamble, meta-commentary, or restatement of the research goal before the actual question — in any language (e.g. "My next question is:", "To better understand X...", "Bir sonraki sorum şu olacak:")? (forbidden)

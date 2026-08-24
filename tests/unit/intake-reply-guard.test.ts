@@ -21,6 +21,7 @@ import {
   hasMultipleQuestions,
   checkIntakeReplyIsolated,
   INTAKE_FALLBACK_MESSAGE,
+  getIntakeFallbackMessage,
   resetIntakeGuardMetrics,
   getIntakeGuardMetrics,
 } from '@/lib/ai-guards/intake-reply-guard'
@@ -103,6 +104,50 @@ describe('applyIntakeGuard — BLOCKED kalıpları', () => {
   it('Türkçe sahte doğrulama: "kullanıcılar bunu sever" → blocked', () => {
     const result = applyIntakeGuard('Kullanıcılar bunu sever. Şimdi bana söyleyin...')
     expect(result.verdict).toBe('blocked')
+  })
+})
+
+// ── applyIntakeGuard — "? Yani ..." çift soru deseni ─────────────────────────
+// Production'da gözlemlenen gerçek regresyon: model "? Yani, ...?" ile ikinci
+// soruyu ekliyordu, hasMultipleQuestions bunu yakalıyordu ama isolated check +
+// retry döngüsü aynı prompt'u değişmeden yeniden gönderdiği için model her
+// denemede birebir aynı hatayı tekrarlıyordu. Artık kural seviyesinde
+// (BLOCKED) yakalanır — isolated check'e kadar beklenmez.
+
+describe('applyIntakeGuard — "? Yani ..." çift soru deseni (BLOCKED)', () => {
+  it('gerçek production örneği: "? Yani, ...?" → blocked', () => {
+    const result = applyIntakeGuard(
+      'Şimdi, bu bilgileri kullanarak, sistemin getireceği çözüm ile ilgili hangi sonuçları elde etmeyi umuyoruz? ' +
+      'Yani, bu sistemin CSM ekiplerine hangi spesifik faydaları sağlayacağını düşünüyorsunuz?'
+    )
+    expect(result.verdict).toBe('blocked')
+    expect(result.reason).toMatch(/yani/i)
+  })
+
+  it('"? Yani ..." (virgülsüz) → blocked', () => {
+    const result = applyIntakeGuard('Bu ne sıklıkla oluyor? Yani haftada kaç kere karşılaşıyorsunuz?')
+    expect(result.verdict).toBe('blocked')
+  })
+
+  it('İngilizce: "? That is, ...?" → blocked', () => {
+    const result = applyIntakeGuard('How often does this happen? That is, how many times per week?')
+    expect(result.verdict).toBe('blocked')
+  })
+
+  it('İngilizce: "? In other words, ...?" → blocked', () => {
+    const result = applyIntakeGuard('What data do you need? In other words, what would help you decide?')
+    expect(result.verdict).toBe('blocked')
+  })
+
+  it('İngilizce: "? Specifically, ...?" → blocked', () => {
+    const result = applyIntakeGuard('What outcomes do you expect? Specifically, which metrics matter most?')
+    expect(result.verdict).toBe('blocked')
+  })
+
+  it('"Yani" soru işaretinden ÖNCE geçiyorsa (bağımsız kullanım) → bloklamaz', () => {
+    // "Yani" kelimesi tek başına yasaklı değil — sadece "?" hemen ardından geldiğinde.
+    const result = applyIntakeGuard('Yani bu süreci genelde nasıl yönetiyorsunuz?')
+    expect(result.verdict).not.toBe('blocked')
   })
 })
 
@@ -552,5 +597,32 @@ describe('INTAKE_FALLBACK_MESSAGE', () => {
 
   it('soru formatında', () => {
     expect(INTAKE_FALLBACK_MESSAGE).toContain('?')
+  })
+})
+
+// ── getIntakeFallbackMessage — dile göre fallback ────────────────────────────
+// Production regresyon: guard retry'ları tükendiğinde her zaman sabit
+// İngilizce INTAKE_FALLBACK_MESSAGE dönüyordu — aktif Türkçe oturumda bile.
+// getIntakeFallbackMessage(sessionLanguage) bunun yerine kullanılmalı.
+
+describe('getIntakeFallbackMessage — dile göre fallback', () => {
+  it('en → INTAKE_FALLBACK_MESSAGE ile aynı', () => {
+    expect(getIntakeFallbackMessage('en')).toBe(INTAKE_FALLBACK_MESSAGE)
+  })
+
+  it('tr → Türkçe fallback, İngilizce sabitten farklı', () => {
+    const trFallback = getIntakeFallbackMessage('tr')
+    expect(trFallback).not.toBe(INTAKE_FALLBACK_MESSAGE)
+    expect(trFallback).toContain('?')
+  })
+
+  it('tr fallback yasaklı kalıp içermiyor (guard\'dan temiz geçer)', () => {
+    const trFallback = getIntakeFallbackMessage('tr')
+    expect(applyIntakeGuard(trFallback).verdict).not.toBe('blocked')
+  })
+
+  it('tr fallback Türkçe karakterler içeriyor (gerçekten yerelleştirilmiş)', () => {
+    const trFallback = getIntakeFallbackMessage('tr')
+    expect(trFallback).toMatch(/[çğıöşüÇĞİÖŞÜ]/)
   })
 })

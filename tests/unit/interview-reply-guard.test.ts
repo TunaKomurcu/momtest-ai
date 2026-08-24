@@ -162,6 +162,42 @@ describe('applyInterviewGuard — BLOCKED: gelecek niyet / "Would you..." başla
   })
 })
 
+// ── applyInterviewGuard — "? Yani ..." çift soru deseni ──────────────────────
+// Aynı production regresyonu intake route'ta gözlemlendi ve interview
+// route'ta da aynı zafiyet mevcuttu (bkz. lib/ai-guards/intake-reply-guard.ts
+// eşdeğer test bloğu). Artık kural seviyesinde (BLOCKED) yakalanır.
+
+describe('applyInterviewGuard — "? Yani ..." çift soru deseni (BLOCKED)', () => {
+  it('gerçek production örneği (intake\'ten taşınan desen): "? Yani, ...?" → blocked', () => {
+    const result = applyInterviewGuard(
+      'Bu süreci Excel\'de takip ederken en son ne zaman bir hata yaşadınız? ' +
+      'Yani, bu hatalar ne sıklıkla oluyor?'
+    )
+    expect(result.verdict).toBe('blocked')
+    expect(result.reason).toMatch(/yani/i)
+  })
+
+  it('İngilizce: "? That is, ...?" → blocked', () => {
+    const result = applyInterviewGuard('When did this last happen? That is, how many days ago?')
+    expect(result.verdict).toBe('blocked')
+  })
+
+  it('İngilizce: "? In other words, ...?" → blocked', () => {
+    const result = applyInterviewGuard('What tools do you use? In other words, which ones daily?')
+    expect(result.verdict).toBe('blocked')
+  })
+
+  it('İngilizce: "? Specifically, ...?" → blocked', () => {
+    const result = applyInterviewGuard('How do you track this? Specifically, in which spreadsheet?')
+    expect(result.verdict).toBe('blocked')
+  })
+
+  it('"Yani" soru işaretinden ÖNCE geçiyorsa (bağımsız kullanım) → bloklamaz', () => {
+    const result = applyInterviewGuard('Yani bu süreci genelde nasıl yönetiyorsunuz?')
+    expect(result.verdict).not.toBe('blocked')
+  })
+})
+
 // ── applyInterviewGuard — RISKY kalıpları ────────────────────────────────────
 
 describe('applyInterviewGuard — RISKY kalıpları', () => {
