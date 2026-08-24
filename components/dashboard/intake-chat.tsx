@@ -177,7 +177,7 @@ export function IntakeChat({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Mesajınızı yazın... (Göndermek için Enter)"
+              placeholder="Mesajınızı yazın... (Enter: gönder, Shift+Enter: yeni satır)"
               disabled={sending}
               rows={2}
               className="max-h-36 min-h-0 resize-none"
@@ -234,8 +234,23 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             : 'bg-primary text-primary-foreground'
         )}
       >
-        {message.content}
+        {renderMarkdown(message.content)}
       </div>
     </div>
   )
+}
+
+function renderMarkdown(text: string): React.ReactNode {
+  return text.split('\n').map((line, lineIdx) => (
+    <span key={lineIdx}>
+      {lineIdx > 0 && <br />}
+      {line.split(/(\*\*[^*\n]+\*\*)/).map((part, partIdx) =>
+        part.startsWith('**') && part.endsWith('**') ? (
+          <strong key={partIdx}>{part.slice(2, -2)}</strong>
+        ) : (
+          <span key={partIdx}>{part}</span>
+        )
+      )}
+    </span>
+  ))
 }

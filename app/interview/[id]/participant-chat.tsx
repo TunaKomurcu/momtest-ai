@@ -280,7 +280,7 @@ export function ParticipantChat({ interviewId, initialParticipantName }: { inter
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Cevabınızı yazın... (Göndermek için Enter)"
+              placeholder="Cevabınızı yazın... (Enter: gönder, Shift+Enter: yeni satır)"
               disabled={sending}
               rows={2}
               className="max-h-36 min-h-0 resize-none"
