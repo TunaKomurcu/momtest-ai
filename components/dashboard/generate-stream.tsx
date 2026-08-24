@@ -113,9 +113,11 @@ export function GenerateStream({
       }
 
       if (sawDone) {
+        setErrorMessage(null)
         setState('done')
         onDone?.()
       } else {
+        setErrorMessage(null)
         setState('done')
       }
     } catch (err) {
@@ -158,12 +160,12 @@ export function GenerateStream({
         </Button>
       </div>
 
-      {state === 'error' && errorMessage && (
+      {state === 'error' && errorMessage ? (
         <div className="border-destructive/40 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-3 py-2 text-xs">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           <span>{errorMessage}</span>
         </div>
-      )}
+      ) : null}
 
       {(hasOutput || isStreaming || state === 'done') && (
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-2">

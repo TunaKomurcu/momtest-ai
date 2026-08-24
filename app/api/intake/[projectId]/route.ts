@@ -542,6 +542,12 @@ ${probeInstruction}
     ])
   } catch (err) {
     console.error('[Intake] Mesaj kaydı başarısız:', err)
+    // Mesaj kaydı başarısız olursa isComplete'i false'a çek —
+    // generate route'u boş mesaj listesiyle karşılaşmasın.
+    return NextResponse.json(
+      { data: null, error: 'Mesaj kaydedilemedi. Lütfen tekrar deneyin.' },
+      { status: 500 }
+    )
   }
 
   // --- Tamamlandıysa research_brief güncelle ---

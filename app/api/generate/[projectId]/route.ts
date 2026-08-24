@@ -179,10 +179,10 @@ export async function POST(
   }
 
   // --- Proje doğrulama ---
-  let project: { id: string; product_idea: string } | undefined
+  let project: { id: string; product_idea: string; research_brief: unknown } | undefined
   try {
     const rows = await db
-      .select({ id: projects.id, product_idea: projects.product_idea })
+      .select({ id: projects.id, product_idea: projects.product_idea, research_brief: projects.research_brief })
       .from(projects)
       .where(eq(projects.id, projectId))
       .limit(1)
@@ -219,11 +219,23 @@ export async function POST(
     console.error('[Generate] Mesaj sorgusu başarısız:', err)
   }
 
+  // Mesaj yoksa research_brief'i fallback transcript olarak kullan.
+  // Bu durum mesaj kaydının başarısız olduğu senaryolarda oluşabilir.
   if (intakeMessages.length === 0) {
-    return new Response(
-      JSON.stringify({ data: null, error: 'Bu proje için tamamlanmış intake mesajı bulunamadı.' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
-    )
+    if (project.research_brief) {
+      intakeMessages = [
+        {
+          sender: 'agent',
+          content: `Research Brief (from previous intake): ${JSON.stringify(project.research_brief)}`,
+        },
+      ]
+      console.warn('[Generate] Intake mesajları bulunamadı, research_brief fallback kullanılıyor.')
+    } else {
+      return new Response(
+        JSON.stringify({ data: null, error: 'Intake tamamlanmamış. Lütfen önce intake sohbetini tamamlayın.' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
   }
 
   if (shouldUseMockLLM()) {
