@@ -37,6 +37,11 @@ const BLOCKED_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /would\s+you\s+use\s+this/i,            reason: 'Rol kayması: PM\'e "would you use this" sorusu' },
   { pattern: /do\s+you\s+like\s+this\s+idea/i,       reason: 'Rol kayması: PM\'den onay istemek' },
   { pattern: /is\s+this\s+(a\s+)?good\s+idea/i,      reason: 'Rol kayması: PM\'den görüş istemek' },
+
+  // "Yani, ..." ile bağlanan ikinci soru — tek soru kuralı ihlali
+  // Model her retry'da bu pattern'i üretiyor, kural seviyesinde engelle.
+  { pattern: /\?\s*(yani|yani,|yani\s+)/i,           reason: 'Çift soru: "? Yani ..." pattern\'i — tek soru kuralı ihlali' },
+  { pattern: /\?\s*(that\s+is|i\.e\.|in\s+other\s+words),?\s+/i, reason: 'Double question: "? That is/i.e./In other words" pattern' },
 ]
 
 /**

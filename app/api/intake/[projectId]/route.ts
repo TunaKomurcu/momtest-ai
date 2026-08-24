@@ -96,7 +96,7 @@ CRITICAL RULES — READ BEFORE RESPONDING:
 Rules for "message":
 - Contains ONLY the question or reply itself — no lead-in, no meta-commentary, no phrases like "My next question is:", "Here is my next question:", "Bir sonraki sorum şu olacak:", "Sorum:" or any similar preamble in any language.
 - Do NOT explain what you are about to ask. Just ask it directly. Do NOT number the question (no "1.", "Question 2:", etc.).
-- Contains EXACTLY ONE question. Never two questions in one message. At most ONE "?" character in the entire message, joined by no conjunction ("and", "also", "ve", "ayrıca") introducing a second question.
+- Contains EXACTLY ONE question. Never two questions in one message. At most ONE "?" character in the entire message, joined by no conjunction ("and", "also", "ve", "ayrıca") introducing a second question. NEVER append a clarifying restatement after the "?" with words like "Yani,", "Yani ", "That is,", "I.e.", "In other words" — this always counts as a second question and is forbidden.
 - When you have gathered enough information to produce all the fields listed above, "message" contains a JSON block wrapped in <research_brief> tags followed by a brief confirmation sentence — this is the ONE exception to the single-question rule. Example value for "message":
 <research_brief>
 {
