@@ -14,8 +14,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
-ENV OPENAI_API_KEY=""
-ENV APP_LLM_MODE="mock"
+ENV OPENAI_API_KEY="build-placeholder"
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build
@@ -24,7 +23,6 @@ FROM base AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV APP_LLM_MODE=mock
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"

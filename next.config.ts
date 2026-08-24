@@ -6,9 +6,10 @@ const nextConfig: NextConfig = {
   // Bu mod olmadan Dockerfile'daki runner aşaması çalışmaz.
   output: "standalone",
 
-  // allowedDevOrigins: sadece local dev ortamında gerekli, production'da boş bırak.
-  // Docker/K8s ortamında bu satır etkisizdir ama zarar da vermez.
-  allowedDevOrigins: process.env.NODE_ENV === "development" ? ["172.22.208.1"] : [],
+  // allowedDevOrigins: local geliştirmede cross-origin HMR için.
+  // ALLOWED_DEV_ORIGINS env ile override edilebilir (virgülle ayrılmış liste).
+  // Production'da otomatik boş kalır.
+  allowedDevOrigins: process.env.ALLOWED_DEV_ORIGINS?.split(',') ?? [],
 };
 
 export default nextConfig;
