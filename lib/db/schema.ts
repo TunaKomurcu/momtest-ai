@@ -14,6 +14,10 @@ import {
 export const projects = pgTable('projects', {
   id:              uuid('id').primaryKey().defaultRandom(),
   product_idea:    text('product_idea').notNull(),
+  // Explicit, persisted pipeline language — authoritative source for intake,
+  // brief/script generation, interview, and analysis prompts. Replaces
+  // per-turn language detection, which caused mid-interview language drift.
+  language:        text('language', { enum: ['tr', 'en'] }).notNull().default('en'),
   research_brief:  jsonb('research_brief'),
   interview_script: jsonb('interview_script'),
   created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -31,6 +35,12 @@ export const interviews = pgTable('interviews', {
     .references(() => projects.id, { onDelete: 'cascade' }),
   participant_name: text('participant_name').notNull(),
   participant_role: text('participant_role'),
+  // Resolved at interview-link creation from an explicit override or the
+  // parent project's language (bkz. app/api/interviews/[projectId]/route.ts).
+  // Stored directly rather than looked up via project_id each turn, so a
+  // later project.language change never retroactively alters an
+  // already-created interview link.
+  language:         text('language', { enum: ['tr', 'en'] }).notNull().default('en'),
   status:           text('status', { enum: ['pending', 'ongoing', 'completed'] })
     .notNull()
     .default('pending'),

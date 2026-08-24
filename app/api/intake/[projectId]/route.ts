@@ -14,7 +14,6 @@ import {
   MAX_GUARD_RETRIES,
 } from '@/lib/ai-guards/intake-reply-guard'
 import {
-  resolveSessionLanguage,
   matchesExpectedLanguage,
 } from '@/lib/ai-guards/language-guard'
 import {
@@ -278,10 +277,15 @@ export async function POST(
   const userMessage = body.message.trim()
 
   // --- Projeyi doğrula ---
-  let project: { id: string; product_idea: string; research_brief: unknown } | undefined
+  let project: { id: string; product_idea: string; research_brief: unknown; language: InterviewLanguage } | undefined
   try {
     const rows = await db
-      .select({ id: projects.id, product_idea: projects.product_idea, research_brief: projects.research_brief })
+      .select({
+        id: projects.id,
+        product_idea: projects.product_idea,
+        research_brief: projects.research_brief,
+        language: projects.language,
+      })
       .from(projects)
       .where(eq(projects.id, projectId))
       .limit(1)
@@ -346,9 +350,11 @@ export async function POST(
   })
   const modelName = OPENAI_MODEL
 
-  // Dil, PM'in ilk mesajından koda tarafından kilitlenir — her turda yeniden
-  // tahmin edilmez. Interview route ile aynı mekanizma (bkz. lib/ai-guards/language-guard.ts).
-  const sessionLanguage: InterviewLanguage = resolveSessionLanguage(history, userMessage)
+  // Dil artık proje oluşturulurken açıkça seçilir ve projects.language'da
+  // kalıcı olarak saklanır — per-turn detection (lib/ai-guards/language-guard.ts)
+  // tek başına drift'e yol açtığı için artık otoriter kaynak değil, sadece
+  // savunma amaçlı yedek olarak dosyada kalır.
+  const sessionLanguage: InterviewLanguage = project.language
 
   // ---------------------------------------------------------------------------
   // Vagueness check — PM cevabının somutluğunu değerlendir

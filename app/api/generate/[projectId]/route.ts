@@ -7,11 +7,17 @@ import fs from 'fs'
 import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
 import { OPENAI_MODEL } from '@/lib/llm/config'
-import { buildGenerateGraph, buildInitialGenerateState } from '@/lib/graphs/generate-graph'
+import {
+  buildGenerateGraph,
+  buildInitialGenerateState,
+  buildResearchBriefSystemPrompt,
+  buildInterviewScriptSystemPrompt,
+} from '@/lib/graphs/generate-graph'
 import type {
   OpenAIAgentConfig,
   ConversationMessage,
   GenerateStreamChunk,
+  InterviewLanguage,
 } from '@/types/index'
 import {
   shouldUseMockLLM,
@@ -37,83 +43,6 @@ function checkRateLimit(ip: string): boolean {
   entry.count++
   return true
 }
-
-// ---------------------------------------------------------------------------
-// System prompts — streaming LLM çağrıları için (validate/retry graph'ta)
-// ---------------------------------------------------------------------------
-
-const RESEARCH_BRIEF_SYSTEM_PROMPT = `You are a customer discovery architect trained in Mom Test principles.
-
-You will receive a PM intake conversation. Your task is to produce a structured Research Brief and Assumption Map.
-
-Output ONLY valid JSON. No prose, no markdown fences, no explanation — just the JSON object.
-
-Output format:
-{
-  "productIdea": "one sentence",
-  "targetCustomer": "who-where segment",
-  "coreSituation": "when the problem appears",
-  "currentBelief": "what the PM believes is true",
-  "riskiestAssumption": "the assumption most likely to kill the idea",
-  "interviewObjective": "what the interview must learn",
-  "evidenceNeeded": {
-    "strong": "behavior or commitment that confirms the assumption",
-    "weak": "compliment, opinion, or hypothetical",
-    "negative": "no pain, no workaround, no urgency"
-  },
-  "participantCriteria": {
-    "mustHave": ["criterion 1", "criterion 2"],
-    "avoid": ["avoid 1", "avoid 2"]
-  },
-  "forbiddenQuestions": ["leading question 1", "pitchy question 2"],
-  "assumptionMap": [
-    {
-      "assumption": "the belief being tested",
-      "riskLevel": "high",
-      "whatToAskAbout": "topic area",
-      "strongEvidence": "concrete behavior that confirms",
-      "weakEvidence": "vague claim or compliment"
-    }
-  ]
-}
-
-Assumption categories to cover: Problem, Frequency, Urgency, Workaround, Budget, Buyer/User split, Channel, Switching.
-Risk levels: high, medium, low. Include at least 4 assumptions.`
-
-const INTERVIEW_SCRIPT_SYSTEM_PROMPT = `You are a customer discovery interview designer trained in Mom Test principles.
-
-You will receive a Research Brief (JSON). Your task is to produce a structured Interview Script.
-
-Core rules (NEVER violate):
-- Do NOT pitch the product, mention the solution, or ask for opinions about the idea.
-- Do NOT use banned patterns: "would you use", "do you like", "would you pay", "is this interesting", "should we build", "do you think this is a good idea", "could you imagine using this".
-- Ask about PAST behavior and real examples, not future intentions.
-- Ask one question at a time.
-- Follow the default sequence: context → recent example → workflow → workaround → cost/frequency → alternatives → commitment history → close.
-
-Output ONLY valid JSON. No prose, no markdown fences, no explanation — just the JSON object.
-
-Output format:
-{
-  "goal": "learning goal for this script",
-  "rulesForInterviewer": [
-    "do not pitch the product",
-    "ask one question at a time",
-    "ask for past examples",
-    "redirect compliments to behavior",
-    "probe vague answers"
-  ],
-  "questions": [
-    {
-      "order": 1,
-      "question": "the interview question",
-      "signalSought": "problem/frequency/workaround/budget/switching/etc.",
-      "whyItPasses": "reason this question follows Mom Test rules"
-    }
-  ]
-}
-
-Generate 8-10 questions that cover the riskiest assumptions from the Research Brief.`
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -180,10 +109,15 @@ export async function POST(
   }
 
   // --- Proje doğrulama ---
-  let project: { id: string; product_idea: string; research_brief: unknown } | undefined
+  let project: { id: string; product_idea: string; research_brief: unknown; language: InterviewLanguage } | undefined
   try {
     const rows = await db
-      .select({ id: projects.id, product_idea: projects.product_idea, research_brief: projects.research_brief })
+      .select({
+        id: projects.id,
+        product_idea: projects.product_idea,
+        research_brief: projects.research_brief,
+        language: projects.language,
+      })
       .from(projects)
       .where(eq(projects.id, projectId))
       .limit(1)
@@ -286,7 +220,7 @@ export async function POST(
           max_tokens:  agentConfig.model?.max_tokens ?? 1500,
           stream:      true,
           messages: [
-            { role: 'system', content: RESEARCH_BRIEF_SYSTEM_PROMPT },
+            { role: 'system', content: buildResearchBriefSystemPrompt(project.language) },
             {
               role: 'user',
               content: `Product idea: ${project.product_idea}\n\nIntake conversation:\n${intakeTranscript}`,
@@ -303,7 +237,7 @@ export async function POST(
           max_tokens:  agentConfig.model?.max_tokens ?? 2000,
           stream:      true,
           messages: [
-            { role: 'system', content: INTERVIEW_SCRIPT_SYSTEM_PROMPT },
+            { role: 'system', content: buildInterviewScriptSystemPrompt(project.language) },
             {
               role: 'user',
               content: `Research Brief:\n${rawBriefOutput}\n\nProduct idea: ${project.product_idea}`,
@@ -318,7 +252,7 @@ export async function POST(
         // Graph içinde tüm parse/validate/retry/critique/db mantığı çalışır.
         controller.enqueue(encodeChunk({ stage: 'critique', content: 'Tutarlılık kontrol ediliyor...' }))
 
-        const graph = buildGenerateGraph(agentConfig)
+        const graph = buildGenerateGraph(agentConfig, project.language)
         const initialState = buildInitialGenerateState(
           projectId,
           project.product_idea,

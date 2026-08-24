@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db/index'
 import { projects } from '@/lib/db/schema'
 import { desc } from 'drizzle-orm'
-import type { ApiResponse } from '@/types/index'
+import type { ApiResponse, InterviewLanguage } from '@/types/index'
 import type { Project } from '@/types/database.types'
 
 // ---------------------------------------------------------------------------
@@ -33,10 +33,10 @@ export async function GET(): Promise<NextResponse<ApiResponse<Project[]>>> {
 export async function POST(
   request: NextRequest
 ): Promise<NextResponse<ApiResponse<Project>>> {
-  let body: { product_idea: string }
+  let body: { product_idea: string; language?: string }
 
   try {
-    body = (await request.json()) as { product_idea: string }
+    body = (await request.json()) as { product_idea: string; language?: string }
   } catch {
     return NextResponse.json(
       { data: null, error: 'Geçersiz JSON gövdesi.' },
@@ -51,10 +51,19 @@ export async function POST(
     )
   }
 
+  if (body.language !== undefined && body.language !== 'tr' && body.language !== 'en') {
+    return NextResponse.json(
+      { data: null, error: 'language alanı "tr" veya "en" olmalıdır.' },
+      { status: 400 }
+    )
+  }
+
+  const language: InterviewLanguage = body.language === 'tr' ? 'tr' : 'en'
+
   try {
     const rows = await db
       .insert(projects)
-      .values({ product_idea: body.product_idea.trim() })
+      .values({ product_idea: body.product_idea.trim(), language })
       .returning()
 
     const newProject = rows[0]

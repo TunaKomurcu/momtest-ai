@@ -17,7 +17,6 @@ import {
   detectInjectionAttempt,
 } from '@/lib/ai-guards/interview-injection-guard'
 import {
-  resolveSessionLanguage,
   matchesExpectedLanguage,
 } from '@/lib/ai-guards/language-guard'
 import {
@@ -368,6 +367,31 @@ export async function POST(
   // 5. Sonuç katılımcıya gönderilir
   // ===========================================================================
 
+  // --- Interview kaydını çek (dil dahil — injection fallback'i için de gerekli) ---
+  let interview: { id: string; project_id: string; participant_name: string; status: string; injection_count: number | null; language: InterviewLanguage } | undefined
+  try {
+    const rows = await db
+      .select({
+        id: interviews.id,
+        project_id: interviews.project_id,
+        participant_name: interviews.participant_name,
+        status: interviews.status,
+        injection_count: interviews.injection_count,
+        language: interviews.language,
+      })
+      .from(interviews)
+      .where(eq(interviews.id, interviewId))
+      .limit(1)
+    interview = rows[0]
+  } catch (err) {
+    console.error('[Interview] Interview sorgusu başarısız:', err)
+    return NextResponse.json({ data: null, error: 'Sunucu hatası.' }, { status: 500 })
+  }
+
+  if (!interview) {
+    return NextResponse.json({ data: null, error: 'Mülakat bulunamadı.' }, { status: 404 })
+  }
+
   // ---------------------------------------------------------------------------
   // ADIM 2: Injection guard — LLM'e gitmeden önce, deterministik, ~0ms
   // ---------------------------------------------------------------------------
@@ -386,32 +410,9 @@ export async function POST(
     // Injection tespit edildi: LLM'e gitme, self-check atla, fallback cevap kullan.
     // Bu sayede gereksiz LLM çağrısı yapılmaz.
     console.log('[Interview/guard] Injection blocked, self-check skipped')
-    // Henüz history çekilmedi — tek elimizdeki katılımcı metninden dil tahmini yapılır.
-    agentReply = getInterviewFallbackMessage(resolveSessionLanguage([], userMessage))
+    agentReply = getInterviewFallbackMessage(interview.language)
   }
   let agentReplyIsClosing = false
-  let interview: { id: string; project_id: string; participant_name: string; status: string; injection_count: number | null } | undefined
-  try {
-    const rows = await db
-      .select({
-        id: interviews.id,
-        project_id: interviews.project_id,
-        participant_name: interviews.participant_name,
-        status: interviews.status,
-        injection_count: interviews.injection_count,
-      })
-      .from(interviews)
-      .where(eq(interviews.id, interviewId))
-      .limit(1)
-    interview = rows[0]
-  } catch (err) {
-    console.error('[Interview] Interview sorgusu başarısız:', err)
-    return NextResponse.json({ data: null, error: 'Sunucu hatası.' }, { status: 500 })
-  }
-
-  if (!interview) {
-    return NextResponse.json({ data: null, error: 'Mülakat bulunamadı.' }, { status: 404 })
-  }
 
   if (interview.status === 'completed') {
     return NextResponse.json(
@@ -498,11 +499,12 @@ export async function POST(
 
   const meaningfulRepliesBeforeThis = countMeaningfulParticipantReplies(history)
 
-  // Dil, katılımcının ilk mesajından koda tarafından kilitlenir — LLM'in her
-  // turda kendi kendine "hangi dildeydik" tahmin etmesine güvenilmez.
-  // Bu, "language drift" sorununu prompting'e değil deterministik bir uygulama
-  // kararına bağlar (bkz. lib/ai-guards/language-guard.ts).
-  const sessionLanguage: InterviewLanguage = resolveSessionLanguage(history, userMessage)
+  // Dil, mülakat linki oluşturulurken açıkça seçilir ve interviews.language'da
+  // kalıcı olarak saklanır (bkz. app/api/interviews/[projectId]/route.ts) — LLM'in
+  // her turda kendi kendine "hangi dildeydik" tahmin etmesine güvenilmez.
+  // Per-turn detection (lib/ai-guards/language-guard.ts) artık otoriter kaynak
+  // değil, sadece savunma amaçlı yedek olarak dosyada kalır.
+  const sessionLanguage: InterviewLanguage = interview.language
 
   // ---------------------------------------------------------------------------
   // ADIM 2.5: Vagueness check — kullanıcı cevabının somutluğunu değerlendir

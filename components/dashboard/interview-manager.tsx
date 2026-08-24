@@ -13,7 +13,7 @@ import {
   Users,
 } from 'lucide-react'
 import type { Interview } from '@/types/database.types'
-import type { ApiResponse, AnalyzeResponseData } from '@/types/index'
+import type { ApiResponse, AnalyzeResponseData, InterviewLanguage } from '@/types/index'
 import type { ProjectStatus } from '@/lib/project-status'
 import { ProjectSummaryBar } from '@/components/dashboard/project-summary-bar'
 
@@ -39,11 +39,13 @@ const STATUS_META = {
 
 export function InterviewManager({
   projectId,
+  projectLanguage = 'en',
   onStatusChange,
   showHeader = true,
   onCreateReady,
 }: {
   projectId: string
+  projectLanguage?: InterviewLanguage
   onStatusChange?: (projectId: string, status: ProjectStatus) => void
   showHeader?: boolean
   onCreateReady?: (createFn: () => Promise<void>) => void
@@ -54,6 +56,7 @@ export function InterviewManager({
   const [analyzingId, setAnalyzingId] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [linkLanguage, setLinkLanguage] = useState<InterviewLanguage>(projectLanguage)
 
   const loadInterviews = useCallback(async () => {
     try {
@@ -76,6 +79,10 @@ export function InterviewManager({
     void loadInterviews()
   }, [loadInterviews])
 
+  useEffect(() => {
+    setLinkLanguage(projectLanguage)
+  }, [projectLanguage])
+
   const createInterview = useCallback(async () => {
     setCreating(true)
     setError(null)
@@ -83,6 +90,8 @@ export function InterviewManager({
     try {
       const res = await fetch(`/api/interviews/${projectId}`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language: linkLanguage }),
       })
       const payload = (await res.json()) as ApiResponse<InterviewSummary>
 
@@ -97,7 +106,7 @@ export function InterviewManager({
     } finally {
       setCreating(false)
     }
-  }, [projectId, onStatusChange])
+  }, [projectId, onStatusChange, linkLanguage])
 
   useEffect(() => {
     if (onCreateReady) {
@@ -155,18 +164,46 @@ export function InterviewManager({
                 Her katılımcı için bir bağlantı oluşturun ve paylaşın.
               </p>
             </div>
-            <Button
-              onClick={() => void createInterview()}
-              disabled={creating}
-              size="sm"
-            >
-              {creating ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <Plus data-icon="inline-start" className="size-4" />
-              )}
-              {creating ? 'Oluşturuluyor...' : 'Yeni Bağlantı'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <div className="flex overflow-hidden rounded-md border border-border">
+                <button
+                  type="button"
+                  onClick={() => setLinkLanguage('tr')}
+                  title="Mülakat dili: Türkçe"
+                  className={`px-2 py-1 text-xs font-medium transition-colors ${
+                    linkLanguage === 'tr'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  TR
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLinkLanguage('en')}
+                  title="Mülakat dili: English"
+                  className={`px-2 py-1 text-xs font-medium transition-colors ${
+                    linkLanguage === 'en'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  EN
+                </button>
+              </div>
+              <Button
+                onClick={() => void createInterview()}
+                disabled={creating}
+                size="sm"
+              >
+                {creating ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <Plus data-icon="inline-start" className="size-4" />
+                )}
+                {creating ? 'Oluşturuluyor...' : 'Yeni Bağlantı'}
+              </Button>
+            </div>
           </div>
         </div>
       )}

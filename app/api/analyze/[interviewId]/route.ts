@@ -7,13 +7,18 @@ import fs from 'fs'
 import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
 import { OPENAI_MODEL } from '@/lib/llm/config'
-import { buildAnalyzeGraph, buildInitialAnalyzeState } from '@/lib/graphs/analyze-graph'
+import {
+  buildAnalyzeGraph,
+  buildInitialAnalyzeState,
+  buildEvidenceAnalystSystemPrompt,
+} from '@/lib/graphs/analyze-graph'
 import type {
   ApiResponse,
   OpenAIAgentConfig,
   AnalyzeResponseData,
   AnalysisCompletedWebhookPayload,
   SignalSummary,
+  InterviewLanguage,
 } from '@/types/index'
 
 // ---------------------------------------------------------------------------
@@ -38,95 +43,6 @@ function checkRateLimit(ip: string): boolean {
   entry.count++
   return true
 }
-
-// ---------------------------------------------------------------------------
-// Evidence Analyst system prompt — ilk LLM çağrısı için (graph retry'larında da kullanılır)
-// ---------------------------------------------------------------------------
-
-const EVIDENCE_ANALYST_SYSTEM_PROMPT = `You are a strict customer-discovery analyst trained in Mom Test principles.
-
-## Your job
-Analyze the interview transcript and separate evidence from noise. Classify every participant signal. Produce a structured JSON analysis object.
-
-## Evidence classification rules (from evidence-rubric.md)
-
-### Strong evidence — count only when participant gives:
-- A recent specific example
-- Repeated occurrence
-- Named tools or people in the workflow
-- A workaround they currently maintain
-- Money already spent
-- Time regularly spent
-- Reputation or operational risk
-- Active search for alternatives
-- Introduction to another stakeholder
-- Pilot, preorder, deposit, or scheduled next step
-
-### Medium evidence — plausible problem but lacks:
-- Proof of urgency, cost, workaround, or commitment
-
-### Weak evidence — treat as noise:
-- Praise or compliments
-- Opinions
-- Hypotheticals ("I would...", "I think...", "probably...")
-- Feature suggestions
-- Future-tense promises
-- Unsupported willingness to pay
-- Generic claims ("usually", "always", "never")
-
-### Negative evidence — red flags:
-- Cannot remember a recent example
-- Does not currently solve the problem
-- Problem has no meaningful cost
-- Workaround is good enough
-- Not the buyer or user
-- Unreachable as a segment
-- Resists any concrete next step
-
-## Decision criteria
-- "continue discovery": strong evidence of problem but not yet enough for commitment test
-- "test commitment": strong problem evidence + urgency + some budget signal
-- "change segment": wrong participant, no pain, or negative evidence dominates
-- "stop": no problem, no urgency, no workaround, nothing to learn
-- "build narrow prototype": strong evidence across problem + frequency + workaround + budget dimensions
-
-## Output format
-Output ONLY valid JSON. No prose, no markdown fences, no explanation — just the JSON object.
-
-{
-  "decision": "continue discovery | test commitment | change segment | stop | build narrow prototype",
-  "summary": "2-3 sentence plain-language summary of what was learned",
-  "signalScore": {
-    "problemEvidence": "strong | medium | weak | negative",
-    "urgency": "strong | medium | weak | negative",
-    "workaroundEvidence": "strong | medium | weak | negative",
-    "budgetOrCommitment": "strong | medium | weak | negative"
-  },
-  "strongEvidence": [
-    { "quote": "exact or close paraphrase from participant", "message_id": "msg-uuid", "whyItMatters": "behavioral reason" }
-  ],
-  "mediumEvidence": [
-    { "quote": "...", "message_id": "msg-uuid", "context": "why this is medium not strong" }
-  ],
-  "weakEvidence": [
-    { "quote": "...", "message_id": "msg-uuid", "whyItIsWeak": "compliment/hypothetical/opinion/etc." }
-  ],
-  "negativeEvidence": [
-    { "quote": "exact or close paraphrase from participant", "message_id": "msg-uuid", "whyItIsNegative": "why this is a red flag — e.g. no recent example, workaround is good enough, not the buyer" }
-  ],
-  "openQuestions": [
-    "next important unknown 1",
-    "next important unknown 2",
-    "next important unknown 3"
-  ],
-  "recommendedNextStep": "one concrete action"
-}
-
-Rules:
-- Use the exact message_id provided in the transcript for each signal.
-- Do not invent quotes. Use close paraphrases if exact quotes are long.
-- Do not count agent questions as evidence — only participant answers matter.
-- If the transcript is too short to analyze, set decision to "change segment" and explain in summary.`
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -215,10 +131,11 @@ export async function POST(
     )
   }
 
-  // --- Proje varlığını doğrula ---
+  // --- Proje varlığını doğrula + dil bilgisini çek ---
+  let projectLanguage: InterviewLanguage = 'en'
   try {
     const rows = await db
-      .select({ id: projects.id })
+      .select({ id: projects.id, language: projects.language })
       .from(projects)
       .where(eq(projects.id, interview.project_id))
       .limit(1)
@@ -229,6 +146,8 @@ export async function POST(
         { status: 404 }
       )
     }
+
+    projectLanguage = rows[0].language as InterviewLanguage
   } catch (err) {
     console.error('[Analyze] Proje sorgusu başarısız:', err)
     return NextResponse.json(
@@ -304,7 +223,7 @@ export async function POST(
       temperature: 0.2,
       max_tokens:  agentConfig.model?.max_tokens ?? 2048,
       messages: [
-        { role: 'system', content: EVIDENCE_ANALYST_SYSTEM_PROMPT },
+        { role: 'system', content: buildEvidenceAnalystSystemPrompt(projectLanguage) },
         {
           role: 'user',
           content: `Participant name: ${interview.participant_name}\n\nInterview transcript:\n${transcript}`,
@@ -331,7 +250,7 @@ export async function POST(
 
   const groundingMessages = messageRows.map((m) => ({ id: m.id, content: m.content }))
 
-  const graph        = buildAnalyzeGraph(agentConfig)
+  const graph        = buildAnalyzeGraph(agentConfig, projectLanguage)
   const initialState = buildInitialAnalyzeState(
     interviewId,
     interview.project_id,

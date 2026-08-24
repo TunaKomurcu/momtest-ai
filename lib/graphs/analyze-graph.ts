@@ -31,6 +31,7 @@ import type {
   WeakSignalEntry,
   NegativeSignalEntry,
   OpenAIAgentConfig,
+  InterviewLanguage,
 } from '@/types/index'
 import type { AnalyzeState } from '@/lib/graphs/types'
 
@@ -63,10 +64,14 @@ const AnalyzeAnnotation = Annotation.Root({
 type GraphState = typeof AnalyzeAnnotation.State
 
 // ---------------------------------------------------------------------------
-// System prompt (analyze/route.ts ile aynı — tek kaynak)
+// System prompt — dile göre üretilir (tek kaynak).
+// analyze/route.ts bu builder fonksiyonunu import eder — önceki mimaride
+// prompt metni iki yerde ayrı ayrı bakım gerektiren bir kopyaydı.
 // ---------------------------------------------------------------------------
 
-const EVIDENCE_ANALYST_SYSTEM_PROMPT = `You are a strict customer-discovery analyst trained in Mom Test principles.
+export function buildEvidenceAnalystSystemPrompt(language: InterviewLanguage): string {
+  const label = language === 'tr' ? 'Turkish (native, fluent Turkish)' : 'English'
+  return `You are a strict customer-discovery analyst trained in Mom Test principles.
 
 ## Your job
 Analyze the interview transcript and separate evidence from noise. Classify every participant signal. Produce a structured JSON analysis object.
@@ -147,9 +152,12 @@ Output ONLY valid JSON. No prose, no markdown fences, no explanation — just th
 
 Rules:
 - Use the exact message_id provided in the transcript for each signal.
-- Do not invent quotes. Use close paraphrases if exact quotes are long.
+- Do not invent quotes when paraphrasing — "quote" must stay in the transcript's original language even if the rest of your output is in ${label} (never translate a quote).
 - Do not count agent questions as evidence — only participant answers matter.
-- If the transcript is too short to analyze, set decision to "change segment" and explain in summary.`
+- If the transcript is too short to analyze, set decision to "change segment" and explain in summary.
+
+CRITICAL LANGUAGE REQUIREMENT: Write "summary", "whyItMatters", "context", "whyItIsWeak", "whyItIsNegative", "openQuestions", and "recommendedNextStep" entirely in ${label}. The "decision" and signalScore enum values stay as the exact English literal strings shown above (these are parsed by code, not read by a human) — only the free-text fields are localized.`
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -196,68 +204,117 @@ function buildSignalSummary(analysis: StructuredAnalysis): SignalSummary {
   }
 }
 
+const REPORT_LABELS = {
+  en: {
+    title: 'Mom Test Evidence Report',
+    participant: 'Participant',
+    decision: 'Decision',
+    summary: 'Summary',
+    signalScore: 'Signal score',
+    problemEvidence: 'problem evidence',
+    urgency: 'urgency',
+    workaroundEvidence: 'workaround evidence',
+    budgetOrCommitment: 'budget or commitment',
+    strongEvidence: 'Strong evidence',
+    mediumEvidence: 'Medium evidence',
+    weakEvidence: 'Weak or misleading evidence',
+    negativeEvidence: 'Negative evidence',
+    quoteCol: 'Quote or observation',
+    whyItMattersCol: 'Why it matters',
+    contextCol: 'Context',
+    whyItIsWeakCol: 'Why it is weak',
+    whyItIsNegativeCol: 'Why it is negative',
+    openQuestions: 'Open questions',
+    recommendedNextStep: 'Recommended next step',
+  },
+  tr: {
+    title: 'Mom Test Kanıt Raporu',
+    participant: 'Katılımcı',
+    decision: 'Karar',
+    summary: 'Özet',
+    signalScore: 'Sinyal skoru',
+    problemEvidence: 'problem kanıtı',
+    urgency: 'aciliyet',
+    workaroundEvidence: 'geçici çözüm kanıtı',
+    budgetOrCommitment: 'bütçe veya taahhüt',
+    strongEvidence: 'Güçlü kanıt',
+    mediumEvidence: 'Orta kanıt',
+    weakEvidence: 'Zayıf veya yanıltıcı kanıt',
+    negativeEvidence: 'Negatif kanıt',
+    quoteCol: 'Alıntı veya gözlem',
+    whyItMattersCol: 'Neden önemli',
+    contextCol: 'Bağlam',
+    whyItIsWeakCol: 'Neden zayıf',
+    whyItIsNegativeCol: 'Neden negatif',
+    openQuestions: 'Açık sorular',
+    recommendedNextStep: 'Önerilen sonraki adım',
+  },
+} as const
+
 function buildMarkdownReport(
   analysis: StructuredAnalysis,
-  participantName: string
+  participantName: string,
+  language: InterviewLanguage
 ): string {
+  const t = REPORT_LABELS[language]
   const lines: string[] = []
 
-  lines.push('# Mom Test Evidence Report')
+  lines.push(`# ${t.title}`)
   lines.push('')
-  lines.push(`**Participant:** ${participantName}`)
+  lines.push(`**${t.participant}:** ${participantName}`)
   lines.push('')
-  lines.push('## Decision')
+  lines.push(`## ${t.decision}`)
   lines.push(analysis.decision)
   lines.push('')
-  lines.push('## Summary')
+  lines.push(`## ${t.summary}`)
   lines.push(analysis.summary)
   lines.push('')
-  lines.push('## Signal score')
-  lines.push(`- problem evidence: ${analysis.signalScore.problemEvidence}`)
-  lines.push(`- urgency: ${analysis.signalScore.urgency}`)
-  lines.push(`- workaround evidence: ${analysis.signalScore.workaroundEvidence}`)
-  lines.push(`- budget or commitment: ${analysis.signalScore.budgetOrCommitment}`)
+  lines.push(`## ${t.signalScore}`)
+  lines.push(`- ${t.problemEvidence}: ${analysis.signalScore.problemEvidence}`)
+  lines.push(`- ${t.urgency}: ${analysis.signalScore.urgency}`)
+  lines.push(`- ${t.workaroundEvidence}: ${analysis.signalScore.workaroundEvidence}`)
+  lines.push(`- ${t.budgetOrCommitment}: ${analysis.signalScore.budgetOrCommitment}`)
   lines.push('')
 
   if (analysis.strongEvidence.length > 0) {
-    lines.push('## Strong evidence')
-    lines.push('| Quote or observation | Why it matters |')
+    lines.push(`## ${t.strongEvidence}`)
+    lines.push(`| ${t.quoteCol} | ${t.whyItMattersCol} |`)
     lines.push('|---|---|')
     analysis.strongEvidence.forEach((e) => lines.push(`| ${e.quote} | ${e.whyItMatters} |`))
     lines.push('')
   }
 
   if (analysis.mediumEvidence.length > 0) {
-    lines.push('## Medium evidence')
-    lines.push('| Quote or observation | Context |')
+    lines.push(`## ${t.mediumEvidence}`)
+    lines.push(`| ${t.quoteCol} | ${t.contextCol} |`)
     lines.push('|---|---|')
     analysis.mediumEvidence.forEach((e) => lines.push(`| ${e.quote} | ${e.context} |`))
     lines.push('')
   }
 
   if (analysis.weakEvidence.length > 0) {
-    lines.push('## Weak or misleading evidence')
-    lines.push('| Quote or observation | Why it is weak |')
+    lines.push(`## ${t.weakEvidence}`)
+    lines.push(`| ${t.quoteCol} | ${t.whyItIsWeakCol} |`)
     lines.push('|---|---|')
     analysis.weakEvidence.forEach((e) => lines.push(`| ${e.quote} | ${e.whyItIsWeak} |`))
     lines.push('')
   }
 
   if (analysis.negativeEvidence.length > 0) {
-    lines.push('## Negative evidence')
-    lines.push('| Quote or observation | Why it is negative |')
+    lines.push(`## ${t.negativeEvidence}`)
+    lines.push(`| ${t.quoteCol} | ${t.whyItIsNegativeCol} |`)
     lines.push('|---|---|')
     analysis.negativeEvidence.forEach((e) => lines.push(`| ${e.quote} | ${e.whyItIsNegative} |`))
     lines.push('')
   }
 
   if (analysis.openQuestions.length > 0) {
-    lines.push('## Open questions')
+    lines.push(`## ${t.openQuestions}`)
     analysis.openQuestions.forEach((q, i) => lines.push(`${i + 1}. ${q}`))
     lines.push('')
   }
 
-  lines.push('## Recommended next step')
+  lines.push(`## ${t.recommendedNextStep}`)
   lines.push(analysis.recommendedNextStep)
 
   return lines.join('\n')
@@ -289,7 +346,8 @@ async function parseAnalysisNode(state: GraphState): Promise<Partial<GraphState>
 
 async function retryAnalysisNode(
   state: GraphState,
-  agentConfig: Partial<OpenAIAgentConfig>
+  agentConfig: Partial<OpenAIAgentConfig>,
+  language: InterviewLanguage
 ): Promise<Partial<GraphState>> {
   const openai = buildOpenAIClient(agentConfig)
   console.warn(`[AnalyzeGraph/retry_analysis] Retry ${state.analysisRetryCount + 1}/2`)
@@ -302,7 +360,7 @@ async function retryAnalysisNode(
       max_tokens:  agentConfig.model?.max_tokens ?? 2048,
       stream:      false,
       messages: [
-        { role: 'system', content: EVIDENCE_ANALYST_SYSTEM_PROMPT },
+        { role: 'system', content: buildEvidenceAnalystSystemPrompt(language) },
         {
           role: 'user',
           content: `Participant name: ${state.participantName}\n\nInterview transcript:\n${state.transcript}`,
@@ -350,7 +408,8 @@ async function verifyGroundingNode(state: GraphState): Promise<Partial<GraphStat
 
 async function groundingRetryNode(
   state: GraphState,
-  agentConfig: Partial<OpenAIAgentConfig>
+  agentConfig: Partial<OpenAIAgentConfig>,
+  language: InterviewLanguage
 ): Promise<Partial<GraphState>> {
   if (state.parsedAnalysis === null) return { groundingRetried: true }
 
@@ -371,7 +430,7 @@ async function groundingRetryNode(
       max_tokens:  agentConfig.model?.max_tokens ?? 2048,
       stream:      false,
       messages: [
-        { role: 'system', content: EVIDENCE_ANALYST_SYSTEM_PROMPT },
+        { role: 'system', content: buildEvidenceAnalystSystemPrompt(language) },
         {
           role: 'user',
           content: `Participant name: ${state.participantName}\n\nInterview transcript:\n${state.transcript}`,
@@ -444,12 +503,15 @@ async function checkConsistencyNode(state: GraphState): Promise<Partial<GraphSta
 // signalScore, signalSummary, markdownReport türetir — DB'ye yazılmadan önce.
 // ---------------------------------------------------------------------------
 
-async function buildOutputsNode(state: GraphState): Promise<Partial<GraphState>> {
+async function buildOutputsNode(
+  state: GraphState,
+  language: InterviewLanguage
+): Promise<Partial<GraphState>> {
   if (state.parsedAnalysis === null) return {}
 
   const signalScore    = buildSignalScore(state.parsedAnalysis)
   const signalSummary  = buildSignalSummary(state.parsedAnalysis)
-  const markdownReport = buildMarkdownReport(state.parsedAnalysis, state.participantName)
+  const markdownReport = buildMarkdownReport(state.parsedAnalysis, state.participantName, language)
 
   return { signalScore, signalSummary, markdownReport }
 }
@@ -530,10 +592,15 @@ function routeAfterVerifyGrounding(
  * AnalyzeGraph'ı compile eder ve döndürür.
  *
  * @param agentConfig  openai.yaml'dan yüklenen model konfigürasyonu
+ * @param language     project.language — analiz çıktısının (özet, kanıt açıklamaları,
+ *                     rapor) yazılacağı dil. "decision"/signalScore enum değerleri
+ *                     ve alıntılar bundan etkilenmez (kod tarafından parse edilir /
+ *                     transkriptin orijinal dilinde kalmalıdır).
  */
-export function buildAnalyzeGraph(agentConfig: Partial<OpenAIAgentConfig>) {
-  const retryAnalysis   = (s: GraphState) => retryAnalysisNode(s, agentConfig)
-  const groundingRetry  = (s: GraphState) => groundingRetryNode(s, agentConfig)
+export function buildAnalyzeGraph(agentConfig: Partial<OpenAIAgentConfig>, language: InterviewLanguage) {
+  const retryAnalysis   = (s: GraphState) => retryAnalysisNode(s, agentConfig, language)
+  const groundingRetry  = (s: GraphState) => groundingRetryNode(s, agentConfig, language)
+  const buildOutputs    = (s: GraphState) => buildOutputsNode(s, language)
 
   const graph = new StateGraph(AnalyzeAnnotation)
 
@@ -543,7 +610,7 @@ export function buildAnalyzeGraph(agentConfig: Partial<OpenAIAgentConfig>) {
     .addNode('verify_grounding',  verifyGroundingNode)
     .addNode('grounding_retry',   groundingRetry)
     .addNode('check_consistency', checkConsistencyNode)
-    .addNode('build_outputs',     buildOutputsNode)
+    .addNode('build_outputs',     buildOutputs)
     .addNode('save_to_db',        saveToDbNode)
 
     .addEdge(START, 'parse_analysis')

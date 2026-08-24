@@ -1,9 +1,9 @@
 import { randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db/index'
-import { interviews } from '@/lib/db/schema'
+import { interviews, projects } from '@/lib/db/schema'
 import { eq, desc } from 'drizzle-orm'
-import type { ApiResponse } from '@/types/index'
+import type { ApiResponse, InterviewLanguage } from '@/types/index'
 import type { Interview } from '@/types/database.types'
 
 type InterviewSummary = Pick<
@@ -57,7 +57,7 @@ export async function GET(
 // ---------------------------------------------------------------------------
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> }
 ): Promise<NextResponse<ApiResponse<InterviewSummary>>> {
   const { projectId } = await params
@@ -69,6 +69,40 @@ export async function POST(
     )
   }
 
+  let body: { language?: string } = {}
+  try {
+    body = (await request.json()) as { language?: string }
+  } catch {
+    // Body opsiyonel — boş/geçersiz gövde sorun değil, dil override'ı olmadan devam edilir.
+  }
+
+  if (body.language !== undefined && body.language !== 'tr' && body.language !== 'en') {
+    return NextResponse.json(
+      { data: null, error: 'language alanı "tr" veya "en" olmalıdır.' },
+      { status: 400 }
+    )
+  }
+
+  // Açık override yoksa ebeveyn projenin dili kullanılır — böylece bir mülakat
+  // linki oluşturulduğu andaki dil kilitlenir, sonraki proje dili değişiklikleri
+  // zaten oluşturulmuş linkleri geriye dönük etkilemez.
+  let resolvedLanguage: InterviewLanguage
+  if (body.language === 'tr' || body.language === 'en') {
+    resolvedLanguage = body.language
+  } else {
+    try {
+      const projectRows = await db
+        .select({ language: projects.language })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .limit(1)
+      resolvedLanguage = (projectRows[0]?.language as InterviewLanguage | undefined) ?? 'en'
+    } catch (err) {
+      console.error('[Interviews POST] Proje dili sorgusu başarısız:', err)
+      resolvedLanguage = 'en'
+    }
+  }
+
   try {
     const interviewId = randomUUID()
     const values = {
@@ -76,6 +110,7 @@ export async function POST(
       project_id: projectId,
       participant_name: 'Katılımcı' as const,
       status: 'pending' as const,
+      language: resolvedLanguage,
     }
 
     const rows = await db

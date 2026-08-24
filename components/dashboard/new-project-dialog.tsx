@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Spinner } from '@/components/ui/spinner'
+import type { InterviewLanguage } from '@/types/index'
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,7 @@ export function NewProjectDialog({
 }) {
   const [open, setOpen] = useState(false)
   const [productIdea, setProductIdea] = useState('')
+  const [language, setLanguage] = useState<InterviewLanguage>('tr')
   const [loading, setLoading] = useState(false)
 
   async function handleCreate(event: React.FormEvent<HTMLFormElement>) {
@@ -41,7 +43,7 @@ export function NewProjectDialog({
       const res = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_idea: idea }),
+        body: JSON.stringify({ product_idea: idea, language }),
       })
 
       const payload = (await res.json()) as ApiResponse<Project>
@@ -94,6 +96,27 @@ export function NewProjectDialog({
               required
               autoFocus
             />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>Mülakat Dili</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={language === 'tr' ? 'default' : 'outline'}
+                onClick={() => setLanguage('tr')}
+              >
+                Türkçe
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={language === 'en' ? 'default' : 'outline'}
+                onClick={() => setLanguage('en')}
+              >
+                English
+              </Button>
+            </div>
           </div>
           <DialogFooter>
             <Button type="submit" disabled={loading || !productIdea.trim()}>

@@ -242,6 +242,7 @@ function ProjectBody({
                     <Separator />
                     <InterviewManager
                       projectId={project.id}
+                      projectLanguage={project.language}
                       onStatusChange={onStatusChange}
                       showHeader={false}
                       onCreateReady={setCreateInterview}
@@ -326,6 +327,7 @@ function TabbedWorkspace({
           <div className="p-5">
             <InterviewManager
               projectId={project.id}
+              projectLanguage={project.language}
               onStatusChange={onStatusChange}
             />
           </div>

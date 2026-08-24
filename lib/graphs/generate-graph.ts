@@ -28,6 +28,7 @@ import type {
   InterviewScript,
   ScriptCritique,
   OpenAIAgentConfig,
+  InterviewLanguage,
 } from '@/types/index'
 import type { GenerateState } from '@/lib/graphs/types'
 
@@ -58,10 +59,19 @@ const GenerateAnnotation = Annotation.Root({
 type GraphState = typeof GenerateAnnotation.State
 
 // ---------------------------------------------------------------------------
-// System prompts (generate/route.ts ile aynı — tek kaynak)
+// System prompts — dile göre üretilir (tek kaynak).
+// generate/route.ts bu builder fonksiyonlarını import eder — prompt metni
+// artık iki yerde ayrı ayrı bakım gerektirmiyor (önceki mimaride kopyaydı,
+// bu da dil parametresi eklenince senkron kalması gereken iki nokta demekti).
 // ---------------------------------------------------------------------------
 
-const RESEARCH_BRIEF_SYSTEM_PROMPT = `You are a customer discovery architect trained in Mom Test principles.
+function languageDirective(language: InterviewLanguage): string {
+  const label = language === 'tr' ? 'Turkish (native, fluent Turkish)' : 'English'
+  return `\n\nCRITICAL LANGUAGE REQUIREMENT: Write the ENTIRE output — every string value in the JSON (all questions, descriptions, goals, evidence text, everything a human will read) — in ${label}. Do not use any other language anywhere in the output. This is not optional and applies regardless of what language the source conversation was in.`
+}
+
+export function buildResearchBriefSystemPrompt(language: InterviewLanguage): string {
+  return `You are a customer discovery architect trained in Mom Test principles.
 
 You will receive a PM intake conversation. Your task is to produce a structured Research Brief and Assumption Map.
 
@@ -97,15 +107,17 @@ Output format:
 }
 
 Assumption categories to cover: Problem, Frequency, Urgency, Workaround, Budget, Buyer/User split, Channel, Switching.
-Risk levels: high, medium, low. Include at least 4 assumptions.`
+Risk levels: high, medium, low. Include at least 4 assumptions.${languageDirective(language)}`
+}
 
-const INTERVIEW_SCRIPT_SYSTEM_PROMPT = `You are a customer discovery interview designer trained in Mom Test principles.
+export function buildInterviewScriptSystemPrompt(language: InterviewLanguage): string {
+  return `You are a customer discovery interview designer trained in Mom Test principles.
 
 You will receive a Research Brief (JSON). Your task is to produce a structured Interview Script.
 
 Core rules (NEVER violate):
 - Do NOT pitch the product, mention the solution, or ask for opinions about the idea.
-- Do NOT use banned patterns: "would you use", "do you like", "would you pay", "is this interesting", "should we build", "do you think this is a good idea", "could you imagine using this".
+- Do NOT use banned patterns: "would you use", "do you like", "would you pay", "is this interesting", "should we build", "do you think this is a good idea", "could you imagine using this" — and their equivalents in the target output language.
 - Ask about PAST behavior and real examples, not future intentions.
 - Ask one question at a time.
 - Follow the default sequence: context → recent example → workflow → workaround → cost/frequency → alternatives → commitment history → close.
@@ -132,9 +144,14 @@ Output format:
   ]
 }
 
-Generate 8-10 questions that cover the riskiest assumptions from the Research Brief.`
+Generate 8-10 questions that cover the riskiest assumptions from the Research Brief.${languageDirective(language)}
 
-const SCRIPT_CRITIQUE_SYSTEM_PROMPT = `You are a critic evaluating whether an Interview Script truly tests the Research Brief's riskiest assumption and the assumption map.
+The interviewer agent will read "question" values verbatim to the participant — they MUST already be in the target language; do not rely on the interviewer to translate them.`
+}
+
+export function buildScriptCritiqueSystemPrompt(language: InterviewLanguage): string {
+  const label = language === 'tr' ? 'Turkish' : 'English'
+  return `You are a critic evaluating whether an Interview Script truly tests the Research Brief's riskiest assumption and the assumption map.
 
 You will receive a Research Brief JSON object and an Interview Script JSON object. Your task is to decide whether brief.riskiestAssumption and each assumptionMap row are covered by at least one question in script.questions.
 
@@ -146,7 +163,10 @@ Output format:
   "missingCoverage": ["assumption text or assumption map description not covered by any question"]
 }
 
-Consider every assumptionMap row individually. If a question does not clearly test the assumption, mark it as missing coverage. Score alignment from 0 to 100 based on how well the script covers the riskiest assumption and assumption map rows.`
+Consider every assumptionMap row individually. If a question does not clearly test the assumption, mark it as missing coverage. Score alignment from 0 to 100 based on how well the script covers the riskiest assumption and assumption map rows.
+
+Write "missingCoverage" entries in ${label} — this feeds directly back into a script-regeneration prompt in ${label}, and mixing languages there would bias the regenerated script's language.`
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -185,7 +205,8 @@ async function parseBriefNode(state: GraphState): Promise<Partial<GraphState>> {
 
 async function retryBriefNode(
   state: GraphState,
-  agentConfig: Partial<OpenAIAgentConfig>
+  agentConfig: Partial<OpenAIAgentConfig>,
+  language: InterviewLanguage
 ): Promise<Partial<GraphState>> {
   const openai = buildOpenAIClient(agentConfig)
   console.warn(`[GenerateGraph/retry_brief] Retry ${state.briefRetryCount + 1}/2`)
@@ -198,7 +219,7 @@ async function retryBriefNode(
       max_tokens: agentConfig.model?.max_tokens ?? 1500,
       stream: false,
       messages: [
-        { role: 'system', content: RESEARCH_BRIEF_SYSTEM_PROMPT },
+        { role: 'system', content: buildResearchBriefSystemPrompt(language) },
         {
           role: 'user',
           content: `Product idea: ${state.productIdea}\n\nIntake conversation:\n${state.intakeTranscript}`,
@@ -241,7 +262,8 @@ async function parseScriptNode(state: GraphState): Promise<Partial<GraphState>> 
 
 async function retryScriptNode(
   state: GraphState,
-  agentConfig: Partial<OpenAIAgentConfig>
+  agentConfig: Partial<OpenAIAgentConfig>,
+  language: InterviewLanguage
 ): Promise<Partial<GraphState>> {
   const openai = buildOpenAIClient(agentConfig)
   const briefJson = state.parsedBrief ? JSON.stringify(state.parsedBrief) : state.rawBriefOutput
@@ -255,7 +277,7 @@ async function retryScriptNode(
       max_tokens: agentConfig.model?.max_tokens ?? 2000,
       stream: false,
       messages: [
-        { role: 'system', content: INTERVIEW_SCRIPT_SYSTEM_PROMPT },
+        { role: 'system', content: buildInterviewScriptSystemPrompt(language) },
         {
           role: 'user',
           content: `Research Brief:\n${briefJson}\n\nProduct idea: ${state.productIdea}`,
@@ -279,7 +301,8 @@ async function retryScriptNode(
 
 async function critiqueScriptNode(
   state: GraphState,
-  agentConfig: Partial<OpenAIAgentConfig>
+  agentConfig: Partial<OpenAIAgentConfig>,
+  language: InterviewLanguage
 ): Promise<Partial<GraphState>> {
   const openai = buildOpenAIClient(agentConfig)
   const briefJson  = JSON.stringify(state.parsedBrief, null, 2)
@@ -293,7 +316,7 @@ async function critiqueScriptNode(
       max_tokens: agentConfig.model?.max_tokens ?? 500,
       stream: false,
       messages: [
-        { role: 'system', content: SCRIPT_CRITIQUE_SYSTEM_PROMPT },
+        { role: 'system', content: buildScriptCritiqueSystemPrompt(language) },
         {
           role: 'user',
           content: `Research Brief:\n${briefJson}\n\nInterview Script:\n${scriptJson}`,
@@ -314,7 +337,8 @@ async function critiqueScriptNode(
 
 async function coverageRetryScriptNode(
   state: GraphState,
-  agentConfig: Partial<OpenAIAgentConfig>
+  agentConfig: Partial<OpenAIAgentConfig>,
+  language: InterviewLanguage
 ): Promise<Partial<GraphState>> {
   const openai = buildOpenAIClient(agentConfig)
   const briefJson = JSON.stringify(state.parsedBrief, null, 2)
@@ -333,7 +357,7 @@ async function coverageRetryScriptNode(
       max_tokens: agentConfig.model?.max_tokens ?? 2000,
       stream: false,
       messages: [
-        { role: 'system', content: INTERVIEW_SCRIPT_SYSTEM_PROMPT },
+        { role: 'system', content: buildInterviewScriptSystemPrompt(language) },
         {
           role: 'user',
           content:
@@ -430,7 +454,7 @@ function routeAfterCritique(state: GraphState): 'coverage_retry_script' | 'save_
 }
 
 // ---------------------------------------------------------------------------
-// Graph factory — agentConfig dışarıdan enjekte edilir
+// Graph factory — agentConfig ve language dışarıdan enjekte edilir
 // ---------------------------------------------------------------------------
 
 /**
@@ -438,13 +462,14 @@ function routeAfterCritique(state: GraphState): 'coverage_retry_script' | 'save_
  * Her route isteğinde yeniden compile edilmez — modül seviyesinde cache'lenir.
  *
  * @param agentConfig  openai.yaml'dan yüklenen model konfigürasyonu
+ * @param language     project.language — üretilen brief/script'in yazılacağı dil
  */
-export function buildGenerateGraph(agentConfig: Partial<OpenAIAgentConfig>) {
-  // Node'ları agentConfig ile partial application yap
-  const retryBrief          = (s: GraphState) => retryBriefNode(s, agentConfig)
-  const retryScript         = (s: GraphState) => retryScriptNode(s, agentConfig)
-  const critiqueScript      = (s: GraphState) => critiqueScriptNode(s, agentConfig)
-  const coverageRetryScript = (s: GraphState) => coverageRetryScriptNode(s, agentConfig)
+export function buildGenerateGraph(agentConfig: Partial<OpenAIAgentConfig>, language: InterviewLanguage) {
+  // Node'ları agentConfig + language ile partial application yap
+  const retryBrief          = (s: GraphState) => retryBriefNode(s, agentConfig, language)
+  const retryScript         = (s: GraphState) => retryScriptNode(s, agentConfig, language)
+  const critiqueScript      = (s: GraphState) => critiqueScriptNode(s, agentConfig, language)
+  const coverageRetryScript = (s: GraphState) => coverageRetryScriptNode(s, agentConfig, language)
 
   const graph = new StateGraph(GenerateAnnotation)
 
