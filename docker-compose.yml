@@ -8,9 +8,6 @@
 #   Tam uygulama (integration test için):
 #     docker compose --profile app up
 #
-#   NVIDIA NeMo agent (opsiyonel bridge test için):
-#     docker compose --profile nemo up nemo-agent
-#
 # NOT: Uygulama geliştirirken genellikle sadece `docker compose up db`
 #      yeterlidir. Next.js'i `npm run dev` ile local çalıştırırsın.
 #      `--profile app` ile çalıştırmak tam Docker ortamını test etmek içindir.
@@ -47,7 +44,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      # builder aşamasını hedef al (production build)
       target: runner
     profiles:
       - app
@@ -55,13 +51,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # DB bağlantısı docker network içinden — localhost değil, servis adı
       DATABASE_URL: postgresql://momtest:momtest@db:5432/momtest
       NODE_ENV: production
       APP_LLM_MODE: ${APP_LLM_MODE:-mock}
-      # Aşağıdaki değerleri .env.local'dan veya shell ortamından al
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      NVCF_API_KEY: ${NVCF_API_KEY:-}
       MAKE_WEBHOOK_INTERVIEW_URL: ${MAKE_WEBHOOK_INTERVIEW_URL:-}
       MAKE_WEBHOOK_ANALYSIS_URL: ${MAKE_WEBHOOK_ANALYSIS_URL:-}
     depends_on:
@@ -74,33 +67,7 @@ services:
       retries: 3
       start_period: 45s
 
-  # ── NeMo Agent (NVIDIA) ────────────────────────────────────────────────────
-  # Sadece `--profile nemo` ile başlar.
-  # Mevcut Next.js uygulamasına ve PostgreSQL'e dokunmaz.
-  # NVIDIA NIM API tercih ediliyorsa bu servise gerek yok:
-  # nemo-bridge/config.yaml içinde local_mode: false yapın.
-  nemo-agent:
-    image: nvcr.io/nvidia/nemo/nemo-retriever-embedding-microservice:24.11
-    container_name: momtest-nemo-agent
-    restart: "no"
-    profiles:
-      - nemo
-    ports:
-      - "8000:8000"
-    environment:
-      NGC_API_KEY: ${NGC_API_KEY:-}
-      NIM_MODEL_NAME: ${NIM_MODEL_NAME:-hermes-2-pro}
-    volumes:
-      - ./nemo-bridge/skills:/app/skills:ro
-      - ./nemo-bridge/config.yaml:/app/config.yaml:ro
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-
 volumes:
   postgres_data:
     # Named volume: `docker compose down` sonrasında veri korunur.
-    # Tamamen sıfırlamak için: docker volume rm momtestproject_postgres_data
+    # Tamamen sıfırlamak için: docker volume rm <project>_postgres_data

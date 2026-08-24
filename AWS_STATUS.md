@@ -1,6 +1,6 @@
-# AWS / Local Podman Status Summary
+# AWS Deployment Status
 
-This document captures the current state of the project before any actual AWS console or EC2 work begins.
+This document is the canonical record of all AWS infrastructure decisions, deployment steps, and operational state for MomTest AI.
 
 ## 1) Project status
 

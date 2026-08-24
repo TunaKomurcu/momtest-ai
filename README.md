@@ -185,6 +185,19 @@ All cascade deletes: removing a project removes all its interviews and messages.
 
 ---
 
+## Live demo
+
+[https://momtest-demo.online](https://momtest-demo.online)
+
 ## Deployment
 
-The project is designed for [Vercel](https://vercel.com). Set the environment variables in the Vercel project settings and deploy from the main branch. You will need a hosted PostgreSQL database (Neon, Supabase DB-only, Railway, etc.) — set `DATABASE_URL` accordingly.
+The production setup runs on **AWS EC2 (t3.micro, eu-central-1)** with Docker containers behind an Nginx reverse proxy and a Let's Encrypt SSL certificate.
+
+```
+Internet → Nginx (443/80) → Docker: Next.js app (port 8080)
+                                    Docker: PostgreSQL 16-alpine
+```
+
+Secrets (`OPENAI_API_KEY`, `DATABASE_URL`) are stored in AWS Secrets Manager and injected at container startup via `aws/start-momtest-runtime.sh`. Nothing is committed to the repository.
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for full setup instructions and [AWS_STATUS.md](./AWS_STATUS.md) for the current infrastructure state.
