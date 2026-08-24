@@ -16,7 +16,6 @@ COPY . .
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 ENV OPENAI_API_KEY="build-placeholder"
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_OPTIONS="--max-old-space-size=512"
 
 RUN npm run build
 
