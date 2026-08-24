@@ -6,18 +6,20 @@ import type { Project, Interview } from '@/types/database.types'
 import type { DashboardProject } from '@/components/dashboard/types'
 import { DashboardWorkspace } from '@/components/dashboard/dashboard-workspace'
 
+// Her istekte DB'den taze veri çek — statik önbelleğe alınmasın.
+export const dynamic = 'force-dynamic'
+
 export default async function DashboardPage() {
   // Tüm projeleri çek
-  let projectRows: Project[] = []
-  try {
-    projectRows = await db
-      .select()
-      .from(projects)
-      .orderBy(desc(projects.created_at))
-    process.stdout.write(`[Dashboard] DB OK: ${projectRows.length} proje\n`)
-  } catch (err) {
-    process.stderr.write(`[Dashboard] DB HATA: ${String(err)}\n`)
-  }
+  // Tüm projeleri çek
+  const projectRows = await db
+    .select()
+    .from(projects)
+    .orderBy(desc(projects.created_at))
+    .catch((err) => {
+      console.error('[Dashboard] Proje listesi alınamadı:', err)
+      return [] as Project[]
+    })
 
   // Durum türetmek için ilgili mülakatları çek
   let interviewRows: Pick<Interview, 'project_id' | 'evidence_report' | 'signal_score'>[] = []
