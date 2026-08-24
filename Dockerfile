@@ -27,6 +27,8 @@ COPY . .
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 ENV OPENAI_API_KEY="build-placeholder"
 ENV NEXT_TELEMETRY_DISABLED=1
+# Limit Node heap to 512 MB so the build doesn't OOM on t3.micro (1 GB RAM).
+ENV NODE_OPTIONS="--max-old-space-size=512"
 
 RUN npm run build
 
