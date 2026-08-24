@@ -19,6 +19,7 @@ import {
   applyInterviewGuard,
   checkInterviewReplyIsolated,
   INTERVIEW_FALLBACK_MESSAGE,
+  getInterviewFallbackMessage,
 } from '@/lib/ai-guards/interview-reply-guard'
 import OpenAI from 'openai'
 
@@ -368,6 +369,51 @@ describe('checkInterviewReplyIsolated — isolated LLM checker', () => {
     await checkInterviewReplyIsolated('Test message', mockOpenAI, 'test-model')
     const body = capturedBodies[0] as { temperature: number }
     expect(body.temperature).toBe(0)
+  })
+})
+
+// ── applyInterviewGuard — zero-preamble kuralı ────────────────────────────────
+
+describe('applyInterviewGuard — zero-preamble kuralı (RISKY)', () => {
+  it('gerçek regresyon örneği: TR preamble + "bir sonraki sorum" ortada geçiyor → risky', () => {
+    // Bu, kullanıcının bu konuşmada paylaştığı gerçek istenmeyen çıktı örneğidir.
+    // Preamble ifadesi cümlenin BAŞINDA değil, ortasında geçiyor — regex bu yüzden
+    // ^ ile anchor edilmemiştir (bkz. PREAMBLE_PATTERNS yorumu).
+    const badReply =
+      'Hedef müşteri segmentiniz olan orta ölçekli SaaS firmalarında Müşteri Başarısı ekiplerinin ' +
+      'mevcut süreçlerini ve sorunlarını daha iyi anlamak için bir sonraki sorum şu olacak: ' +
+      'Müşteri Başarısı ekipleri, müşterilerin terk etme riskini tespit etmek için şu anda hangi ' +
+      'verileri kullanıyorlar ve bu verilerle ilgili yaşadıkları en büyük zorluklar neler?'
+    const result = applyInterviewGuard(badReply)
+    expect(result.verdict).toBe('risky')
+    expect(result.flags).toEqual(expect.arrayContaining([expect.stringMatching(/preamble/i)]))
+  })
+
+  it('İngilizce preamble: "To better understand X, my next question is:" → risky', () => {
+    const result = applyInterviewGuard(
+      'To better understand your workflow, my next question is: how do you currently track this?'
+    )
+    expect(result.verdict).toBe('risky')
+    expect(result.flags).toEqual(expect.arrayContaining([expect.stringMatching(/preamble/i)]))
+  })
+
+  it('temiz, dolgu içermeyen tek soru → clean (preamble flag tetiklenmez)', () => {
+    const result = applyInterviewGuard('Bu süreci Excel\'de takip ederken en son ne zaman bir hata yaşadınız?')
+    expect(result.verdict).toBe('clean')
+  })
+})
+
+// ── getInterviewFallbackMessage — dile göre fallback ──────────────────────────
+
+describe('getInterviewFallbackMessage', () => {
+  it('en → INTERVIEW_FALLBACK_MESSAGE ile aynı', () => {
+    expect(getInterviewFallbackMessage('en')).toBe(INTERVIEW_FALLBACK_MESSAGE)
+  })
+
+  it('tr → Türkçe fallback, soru formatında ve yasaklı kalıp içermiyor', () => {
+    const trFallback = getInterviewFallbackMessage('tr')
+    expect(trFallback).toContain('?')
+    expect(applyInterviewGuard(trFallback).verdict).not.toBe('blocked')
   })
 })
 

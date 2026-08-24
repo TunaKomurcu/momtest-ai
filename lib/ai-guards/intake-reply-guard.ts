@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import type { GuardResult, ReplyCheckResult } from '@/types/index'
+import type { GuardResult, ReplyCheckResult, InterviewLanguage } from '@/types/index'
 
 // ---------------------------------------------------------------------------
 // Sabitler
@@ -119,6 +119,21 @@ export function hasMultipleQuestions(reply: string): boolean {
   return realQuestionCount >= 2
 }
 
+/**
+ * Soru öncesi meta-yorum / dolgu cümle kalıpları — "zero preamble" kuralı ihlali.
+ * Cümle içinde herhangi bir yerde geçebilir (anchor edilmemiş) — bkz.
+ * lib/ai-guards/interview-reply-guard.ts'deki aynı desenin gerekçesi.
+ */
+const PREAMBLE_PATTERNS: RegExp[] = [
+  /\b(to\s+(better\s+)?understand|in\s+order\s+to\s+understand|my\s+next\s+question\s+is|before\s+i\s+ask|so\s+that\s+i\s+can\s+understand|let'?s\s+move\s+on)\b/i,
+  /\b(daha\s+iyi\s+anlamak\s+için|bir\s+sonraki\s+sorum|şunu\s+sormak\s+istiyorum|öncelikle\s+şunu\s+belirteyim|bunu\s+anlamak\s+amacıyla)\b/i,
+]
+
+/** Soru öncesinde/içinde dolgu/meta-yorum var mı — risky */
+function hasPreambleFiller(reply: string): boolean {
+  return PREAMBLE_PATTERNS.some((pattern) => pattern.test(reply))
+}
+
 // ---------------------------------------------------------------------------
 // Katman 1 — applyIntakeGuard
 // ---------------------------------------------------------------------------
@@ -206,6 +221,10 @@ export function applyIntakeGuard(
     flags.push('Birden fazla soru içeriyor — tek soru kuralı ihlali riski (birden fazla soru)')
   }
 
+  if (hasPreambleFiller(reply)) {
+    flags.push('Soru öncesi dolgu/meta-yorum cümlesi zero-preamble kuralı ihlali (preamble)')
+  }
+
   if (flags.length > 0) {
     recordMetric('risky')
     return { verdict: 'risky', flags, reason: flags[0] }
@@ -234,6 +253,7 @@ Evaluate against these rules:
 3. Does it contain more than one question? (forbidden — one question at a time)
 4. Is it longer than 200 words? (risky — intake answers must be short and focused)
 5. Does it inject the AI's personal opinion using "I think", "I believe"? (forbidden)
+6. Does it include any preamble, meta-commentary, or restatement of the research goal before the actual question — in any language (e.g. "My next question is:", "To better understand X...", "Bir sonraki sorum şu olacak:")? (forbidden)
 
 Respond ONLY with valid JSON, no prose, no markdown:
 { "verdict": "pass" | "fail", "reason": "brief explanation" }`
@@ -290,3 +310,11 @@ export async function checkIntakeReplyIsolated(
  */
 export const INTAKE_FALLBACK_MESSAGE =
   'Who exactly experiences this problem, and when does it typically come up?'
+
+const INTAKE_FALLBACK_MESSAGE_TR =
+  'Bu sorunu tam olarak kim yaşıyor ve genellikle ne zaman ortaya çıkıyor?'
+
+/** Dile göre fallback sorusu döner — guard retry döngüsü tükendiğinde kullanılır. */
+export function getIntakeFallbackMessage(lang: InterviewLanguage): string {
+  return lang === 'tr' ? INTAKE_FALLBACK_MESSAGE_TR : INTAKE_FALLBACK_MESSAGE
+}

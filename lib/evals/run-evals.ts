@@ -18,6 +18,7 @@ import { config } from 'dotenv'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import OpenAI from 'openai'
+import { OPENAI_MODEL } from '@/lib/llm/config'
 import { load as yamlLoad } from 'js-yaml'
 import { parseAndClean } from '@/lib/ai-guards/json-retry'
 import { validateFullResearchBrief } from '@/lib/ai-guards/brief-validator'
@@ -84,7 +85,7 @@ async function callLLM(
 ): Promise<string | null> {
   try {
     const completion = await openai.chat.completions.create({
-      model: agentConfig.model?.name ?? 'gemini-flash-latest',
+      model: OPENAI_MODEL,
       temperature: 0.3,
       max_tokens: agentConfig.model?.max_tokens ?? 2000,
       stream: false,
@@ -316,7 +317,7 @@ async function main(): Promise<void> {
   const agentConfig = loadAgentConfig()
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
+    baseURL: agentConfig.model?.base_url ?? 'https://api.openai.com/v1',
   })
 
   const allResults: EvalResult[] = []

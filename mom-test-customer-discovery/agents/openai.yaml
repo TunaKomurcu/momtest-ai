@@ -6,7 +6,10 @@ interface:
   
 model:
   provider: "openai"
-  name: "gpt-4o-mini"
+  # Model selection now lives in the OPENAI_MODEL env var (default: gpt-4o),
+  # not here — see lib/llm/config.ts. This "name" field is kept only as a
+  # last-resort fallback if OPENAI_MODEL is ever unset in a future code path.
+  name: "gpt-4o"
   base_url: "https://api.openai.com/v1"
   temperature: 0.7
   max_tokens: 1024

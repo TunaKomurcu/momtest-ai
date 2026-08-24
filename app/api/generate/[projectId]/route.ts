@@ -6,6 +6,7 @@ import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
+import { OPENAI_MODEL } from '@/lib/llm/config'
 import { buildGenerateGraph, buildInitialGenerateState } from '@/lib/graphs/generate-graph'
 import type {
   OpenAIAgentConfig,
@@ -258,7 +259,7 @@ export async function POST(
   const agentConfig = loadOpenAIConfig()
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
+    baseURL: agentConfig.model?.base_url ?? 'https://api.openai.com/v1',
   })
 
   const intakeTranscript = intakeMessages
@@ -280,7 +281,7 @@ export async function POST(
       try {
         // ── ADIM 1: Research Brief streaming ──────────────────────────────────
         const briefStream = await openai.chat.completions.create({
-          model:       agentConfig.model?.name ?? 'gemini-flash-latest',
+          model:       OPENAI_MODEL,
           temperature: agentConfig.model?.temperature ?? 0.3,
           max_tokens:  agentConfig.model?.max_tokens ?? 1500,
           stream:      true,
@@ -297,7 +298,7 @@ export async function POST(
 
         // ── ADIM 2: Interview Script streaming ────────────────────────────────
         const scriptStream = await openai.chat.completions.create({
-          model:       agentConfig.model?.name ?? 'gemini-flash-latest',
+          model:       OPENAI_MODEL,
           temperature: agentConfig.model?.temperature ?? 0.4,
           max_tokens:  agentConfig.model?.max_tokens ?? 2000,
           stream:      true,

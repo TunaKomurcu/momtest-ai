@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { OPENAI_FAST_MODEL } from '@/lib/llm/config'
 import type { OpenAIAgentConfig } from '@/types/index'
 import { normalizeUserInput } from '@/lib/text-normalization'
 import { findBestMatch, matchesAny } from '@/lib/typo-tolerant-match'
@@ -282,7 +283,7 @@ export async function checkAnswerIsVague(
   const config = agentConfig ?? loadAgentConfig()
   const client = openai ?? new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL: config.model?.base_url ?? 'https://api.groq.com/openai/v1',
+    baseURL: config.model?.base_url ?? 'https://api.openai.com/v1',
   })
 
   const systemPrompt = `You are a strict auditor evaluating interview answers for concreteness.
@@ -321,7 +322,7 @@ Is this answer concrete or vague? Respond with JSON only.`
 
   try {
     const completion = await client.chat.completions.create({
-      model: config.model?.name ?? 'gemini-flash-latest',
+      model: OPENAI_FAST_MODEL,
       temperature: 0.1, // Low temperature for consistent classification
       max_tokens: 200,
       messages: [

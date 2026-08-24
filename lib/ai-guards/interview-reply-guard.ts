@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import type { GuardResult, ReplyCheckResult } from '@/types/index'
+import type { GuardResult, ReplyCheckResult, InterviewLanguage } from '@/types/index'
 
 // ---------------------------------------------------------------------------
 // Sabitler
@@ -107,6 +107,26 @@ function hasLongQuestion(reply: string): boolean {
   return reply.split('?').some(q => q.trim().split(/\s+/).length > 50)
 }
 
+/**
+ * Soru öncesi meta-yorum / dolgu cümle kalıpları — "zero preamble" kuralı ihlali.
+ * Örnek: "To better understand X, my next question is: ..." / "...daha iyi anlamak
+ * için bir sonraki sorum şu olacak: ..."
+ *
+ * NOT anchored to the start of the string on purpose — the real failure mode
+ * observed in practice is a full lead-in sentence ("Hedef müşteri segmentinizde...
+ * daha iyi anlamak için bir sonraki sorum şu olacak: ...") where the trigger
+ * phrase sits mid-string, not at position 0. Anchoring here would miss it.
+ */
+const PREAMBLE_PATTERNS: RegExp[] = [
+  /\b(to\s+(better\s+)?understand|in\s+order\s+to\s+understand|my\s+next\s+question\s+is|before\s+i\s+ask|so\s+that\s+i\s+can\s+understand|let'?s\s+move\s+on)\b/i,
+  /\b(daha\s+iyi\s+anlamak\s+için|bir\s+sonraki\s+sorum|şunu\s+sormak\s+istiyorum|öncelikle\s+şunu\s+belirteyim|bunu\s+anlamak\s+amacıyla)\b/i,
+]
+
+/** Soru öncesinde/içinde dolgu/meta-yorum var mı — risky */
+function hasPreambleFiller(reply: string): boolean {
+  return PREAMBLE_PATTERNS.some((pattern) => pattern.test(reply))
+}
+
 // ---------------------------------------------------------------------------
 // In-memory metrik sayacı — intake deseniyle aynı
 // ---------------------------------------------------------------------------
@@ -160,6 +180,10 @@ export function applyInterviewGuard(reply: string): GuardResult {
     flags.push('50 kelime üstü soru bileşik yönlendirici soru riski (50 kelime)')
   }
 
+  if (hasPreambleFiller(reply)) {
+    flags.push('Soru öncesi dolgu/meta-yorum cümlesi zero-preamble kuralı ihlali (preamble)')
+  }
+
   if (flags.length > 0) {
     recordMetric('risky')
     return { verdict: 'risky', flags, reason: flags[0] }
@@ -188,6 +212,7 @@ Evaluate against these rules:
 3. Does it ask about future intentions or hypotheticals instead of past behavior? (forbidden)
 4. Does it ask more than one question at a time? (forbidden)
 5. Does it excessively validate or praise the participant ("That's amazing!", "Wow!")? (forbidden)
+6. Does it include any preamble, meta-commentary, or restatement of the research goal before the actual question — in any language (e.g. "My next question is:", "To better understand X...", "Bir sonraki sorum şu olacak:")? (forbidden)
 
 Respond ONLY with valid JSON, no prose, no markdown:
 { "verdict": "pass" | "fail", "reason": "brief explanation" }`
@@ -238,3 +263,11 @@ export async function checkInterviewReplyIsolated(
 
 export const INTERVIEW_FALLBACK_MESSAGE =
   'Can you tell me about the last time this happened?'
+
+const INTERVIEW_FALLBACK_MESSAGE_TR =
+  'Bunun en son ne zaman olduğunu anlatır mısınız?'
+
+/** Dile göre fallback sorusu döner — guard retry döngüsü tükendiğinde kullanılır. */
+export function getInterviewFallbackMessage(lang: InterviewLanguage): string {
+  return lang === 'tr' ? INTERVIEW_FALLBACK_MESSAGE_TR : INTERVIEW_FALLBACK_MESSAGE
+}

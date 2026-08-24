@@ -6,12 +6,17 @@ import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
+import { OPENAI_MODEL, OPENAI_FAST_MODEL } from '@/lib/llm/config'
 import {
   applyIntakeGuard,
   checkIntakeReplyIsolated,
-  INTAKE_FALLBACK_MESSAGE,
+  getIntakeFallbackMessage,
   MAX_GUARD_RETRIES,
 } from '@/lib/ai-guards/intake-reply-guard'
+import {
+  resolveSessionLanguage,
+  matchesExpectedLanguage,
+} from '@/lib/ai-guards/language-guard'
 import {
   isLikelyVague,
   isLikelyVagueWithConfidence,
@@ -26,6 +31,7 @@ import type {
   ConversationMessage,
   IntakeCompletionStatus,
   ResearchBrief,
+  InterviewLanguage,
 } from '@/types/index'
 import {
   shouldUseMockLLM,
@@ -83,7 +89,15 @@ CRITICAL RULES — READ BEFORE RESPONDING:
 - Check the conversation history carefully. Count how many questions you have already asked. Continue from where the conversation left off.
 - Ask a maximum of 8 questions total across the ENTIRE conversation. Do not exceed this limit.
 - NEVER ask a question you have already asked in this conversation.
-- When you have gathered enough information to produce all the fields above, respond with a JSON block wrapped in <research_brief> tags followed by a brief confirmation message. Example:
+
+## Output contract — you MUST return a JSON object with exactly this shape
+{ "language": "tr" | "en", "message": "..." }
+
+Rules for "message":
+- Contains ONLY the question or reply itself — no lead-in, no meta-commentary, no phrases like "My next question is:", "Here is my next question:", "Bir sonraki sorum şu olacak:", "Sorum:" or any similar preamble in any language.
+- Do NOT explain what you are about to ask. Just ask it directly. Do NOT number the question (no "1.", "Question 2:", etc.).
+- Contains EXACTLY ONE question. Never two questions in one message. At most ONE "?" character in the entire message, joined by no conjunction ("and", "also", "ve", "ayrıca") introducing a second question.
+- When you have gathered enough information to produce all the fields listed above, "message" contains a JSON block wrapped in <research_brief> tags followed by a brief confirmation sentence — this is the ONE exception to the single-question rule. Example value for "message":
 <research_brief>
 {
   "researchGoal": "...",
@@ -97,7 +111,53 @@ CRITICAL RULES — READ BEFORE RESPONDING:
 }
 </research_brief>
 Research brief is ready. I will now design your interview script.
-- Do not include the <research_brief> tag unless all fields are complete and you are done asking questions.`
+- Do not include the <research_brief> tag in "message" unless all fields are complete and you are done asking questions.
+
+Rules for "language":
+- The conversation context below tells you the required response language for this turn — set "language" to that exact value and write "message" entirely, fluently, and natively in that language (including the confirmation sentence after a completed <research_brief> block — the JSON keys inside the tag stay in English, only the surrounding prose is localized).
+- Never mix languages within a single message, and never switch languages on your own judgment — the required language is fixed by the app for the whole conversation.`
+
+// ---------------------------------------------------------------------------
+// Structured output — response_format: json_schema
+// research_brief hâlâ <research_brief> XML tag'i olarak "message" alanının
+// İÇİNDE taşınır (mevcut extractResearchBrief/checkCompletion mantığı
+// değişmeden çalışmaya devam eder) — şema sadece dış zarfı ({language,message})
+// enforce eder, bu da zero-preamble ve tek-soru kurallarını yapısal olarak destekler.
+// ---------------------------------------------------------------------------
+
+const INTAKE_REPLY_SCHEMA: OpenAI.Chat.ChatCompletionCreateParams['response_format'] = {
+  type: 'json_schema',
+  json_schema: {
+    name: 'intake_reply',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        language: { type: 'string', enum: ['tr', 'en'] },
+        message: { type: 'string' },
+      },
+      required: ['language', 'message'],
+      additionalProperties: false,
+    },
+  },
+}
+
+/** Ham LLM çıktısını { language, message } olarak parse eder. Şekil uymuyorsa null döner. */
+function parseIntakeReply(raw: string): { language: InterviewLanguage; message: string } | null {
+  let parsed: { language?: unknown; message?: unknown }
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed.message !== 'string' || parsed.message.trim().length === 0) {
+    return null
+  }
+  return {
+    language: parsed.language === 'tr' ? 'tr' : 'en',
+    message: parsed.message.trim(),
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -112,15 +172,6 @@ function loadOpenAIConfig(): Partial<OpenAIAgentConfig> {
     console.warn('[Intake] openai.yaml okunamadı, varsayılan değerler kullanılıyor. Hata:', err)
     return {}
   }
-}
-
-/**
- * Kullanıcının mesajından dil tespiti yapar.
- * Türkçe karakter veya yaygın Türkçe kelime içeriyorsa 'tr', aksi halde 'en' döner.
- */
-function detectLanguage(text: string): 'tr' | 'en' {
-  const turkishPattern = /[çğıöşüÇĞİÖŞÜ]|(\b(ve|bir|bu|ile|için|var|ama|nasıl|neden|ne|kim|hangi|kaç|mı|mi|mu|mü|da|de|ta|te)\b)/i
-  return turkishPattern.test(text) ? 'tr' : 'en'
 }
 
 function extractResearchBrief(reply: string): ResearchBrief | null {
@@ -162,17 +213,17 @@ function countRecentProbes(history: ConversationMessage[]): number {
     /when (exactly )?did (that|this|it)/i,
     /tell me (more )?about (the )?last/i,
   ]
-  
+
   let probeCount = 0
   const recentAgentMessages = history
     .filter(m => m.sender === 'agent')
     .slice(-5)
-  
+
   for (const msg of recentAgentMessages) {
     const isProbe = probeIndicators.some(pattern => pattern.test(msg.content))
     if (isProbe) probeCount++
   }
-  
+
   return probeCount
 }
 
@@ -285,8 +336,13 @@ export async function POST(
   const agentConfig = loadOpenAIConfig()
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
+    baseURL: agentConfig.model?.base_url ?? 'https://api.openai.com/v1',
   })
+  const modelName = OPENAI_MODEL
+
+  // Dil, PM'in ilk mesajından koda tarafından kilitlenir — her turda yeniden
+  // tahmin edilmez. Interview route ile aynı mekanizma (bkz. lib/ai-guards/language-guard.ts).
+  const sessionLanguage: InterviewLanguage = resolveSessionLanguage(history, userMessage)
 
   // ---------------------------------------------------------------------------
   // Vagueness check — PM cevabının somutluğunu değerlendir
@@ -305,11 +361,11 @@ export async function POST(
       // Enhanced heuristic check with confidence levels
       const vaguenessCheck = isLikelyVagueWithConfidence(userMessage, '[Intake/vagueness]')
       console.log(`[Vagueness] answer=${vaguenessCheck.vague}, confidence=${vaguenessCheck.confidence}, source=intake, reason=${vaguenessCheck.reason}`)
-      
+
       if (vaguenessCheck.vague) {
         // Check if we've already hit the probe limit
         const currentProbeCount = countRecentProbes(history)
-        
+
         if (currentProbeCount >= MAX_PROBES_PER_QUESTION) {
           console.log('[Intake/vagueness] Max probes reached, moving to next question')
           recordMaxProbeLimitHit()
@@ -337,15 +393,7 @@ export async function POST(
     { sender: 'participant', content: userMessage },
   ])
 
-  // Dil tespiti — mevcut mesaj + önceki kullanıcı mesajlarından
-  const recentUserText = [
-    ...history.filter(m => m.sender === 'participant').slice(-3).map(m => m.content),
-    userMessage,
-  ].join(' ')
-  const detectedLang = detectLanguage(recentUserText)
-  const languageInstruction = detectedLang === 'tr'
-    ? 'IMPORTANT: The user is writing in Turkish. You MUST respond entirely in Turkish. Do not use any English sentences.'
-    : 'IMPORTANT: The user is writing in English. You MUST respond entirely in English. Do not use any Turkish sentences.'
+  const languageLabel = sessionLanguage === 'tr' ? 'Turkish (tr)' : 'English (en)'
 
   const askedQuestions = history
     .filter((m) => m.sender === 'agent')
@@ -375,8 +423,7 @@ This probe question does NOT count toward your 8-question limit.
 ${askedQuestions ? `\nQuestions already asked (DO NOT repeat these):\n${askedQuestions}` : ''}
 - You must continue the conversation from question ${history.filter((m) => m.sender === 'agent').length + 1}. Do NOT restart.
 
-[LANGUAGE]
-${languageInstruction}
+[Required response language: ${languageLabel} — set "language" to "${sessionLanguage}" and write "message" entirely in ${languageLabel}, no exceptions, even if the PM's message is short, ambiguous, or in a different language]
 ${probeInstruction}
 `
 
@@ -390,15 +437,24 @@ ${probeInstruction}
   ]
 
   let agentReply: string
+  let initialLanguageMismatch = false
   try {
     const completion = await openai.chat.completions.create({
-      model: agentConfig.model?.name ?? 'gemini-flash-latest',
+      model: modelName,
       temperature: agentConfig.model?.temperature ?? 0.4,
       max_tokens: agentConfig.model?.max_tokens ?? 512,
       messages: openaiMessages,
+      response_format: INTAKE_REPLY_SCHEMA,
     })
-    agentReply = completion.choices[0]?.message?.content?.trim() ?? ''
-    if (!agentReply) throw new Error('Groq boş yanıt döndürdü.')
+    const rawContent = completion.choices[0]?.message?.content?.trim() ?? ''
+    if (!rawContent) throw new Error('LLM boş yanıt döndürdü.')
+
+    const parsedReply = parseIntakeReply(rawContent)
+    if (!parsedReply) throw new Error('LLM yanıtı beklenen JSON şemasına uymuyor.')
+
+    agentReply = parsedReply.message
+    initialLanguageMismatch =
+      parsedReply.language !== sessionLanguage || !matchesExpectedLanguage(agentReply, sessionLanguage)
   } catch (err) {
     console.error('[Intake] LLM çağrısı başarısız:', err)
     return NextResponse.json(
@@ -413,118 +469,139 @@ ${probeInstruction}
   )
 
   // ---------------------------------------------------------------------------
-  // Guard — Katman 1 (kural filtresi) + Katman 2 (isolated LLM check)
-  // research_brief tag'i içeren cevaplar guard'a girmez: tamamlanma mesajları
-  // temiz kabul edilir. Guard yalnızca sohbet cevaplarını denetler.
+  // Guard — Katman 1 (kural filtresi) + Katman 2 (isolated LLM check) + dil kontrolü
+  // research_brief tag'i içeren cevaplar Mom Test kural filtresine girmez:
+  // tamamlanma mesajları temiz kabul edilir. Dil kontrolü ise HER zaman çalışır —
+  // tamamlanma onay mesajı da PM'e gösterilen bir mesajdır.
   //
-  // Retry zinciri — her iki dal (BLOCKED + RISKY) için ortak mantık:
-  //   1. Orijinal cevap kural filtresinden geçer.
+  // Retry zinciri:
+  //   1. Orijinal cevap kural filtresinden geçer (isComplete değilse).
   //   2. blocked → doğrudan retry döngüsüne gir.
   //   3. risky   → önce isolated check; fail ise retry döngüsüne gir.
-  //   4. Döngü her adımda hem kural filtresi HEM isolated check uygular.
-  //   5. MAX_GUARD_RETRIES kadar deneme sonrası hâlâ geçemezse fallback.
+  //   4. Dil uyumsuzluğu → her zaman retry döngüsüne gir (isComplete'ten bağımsız).
+  //   5. Döngü her adımda hem kural filtresi HEM isolated check HEM dil kontrolü uygular.
+  //   6. MAX_GUARD_RETRIES kadar deneme sonrası hâlâ geçemezse dile-özgü fallback.
   // ---------------------------------------------------------------------------
   const agentMessageCount = history.filter(m => m.sender === 'agent').length
-  const modelName = agentConfig.model?.name ?? 'gemini-flash-latest'
+  const replyIsComplete = /<research_brief>/i.test(agentReply)
 
-  if (!/<research_brief>/i.test(agentReply)) {
-    const initialGuard = applyIntakeGuard(agentReply, agentMessageCount)
+  const initialGuard = replyIsComplete ? undefined : applyIntakeGuard(agentReply, agentMessageCount)
 
-    // ── Teşhis logu — her istekte orijinal cevabı kayıt altına alır ──────────
-    console.log('[Intake/guard] orijinal cevap:', {
-      verdict:            initialGuard.verdict,
-      flags:              'flags' in initialGuard ? initialGuard.flags : [],
-      reason:             'reason' in initialGuard ? initialGuard.reason : undefined,
-      wordCount:          agentReply.trim().split(/\s+/).length,
-      questionCount:      (agentReply.match(/\?/g) ?? []).length,
-      startsWithIThink:   /^i\s+think\s+/im.test(agentReply),
-      startsWithIBelieve: /^i\s+believe\s+/im.test(agentReply),
-      hasSanırım:         /sanırım\s+/i.test(agentReply),
-      hasBence:           /bence\s+/i.test(agentReply),
-      fullText:           agentReply,
-    })
-    // ─────────────────────────────────────────────────────────────────────────
+  // ── Teşhis logu — her istekte orijinal cevabı kayıt altına alır ──────────
+  console.log('[Intake/guard] orijinal cevap:', {
+    verdict:            initialGuard?.verdict ?? 'skipped(complete)',
+    flags:              initialGuard && 'flags' in initialGuard ? initialGuard.flags : [],
+    reason:             initialGuard && 'reason' in initialGuard ? initialGuard.reason : undefined,
+    expectedLang:       sessionLanguage,
+    languageMismatch:   initialLanguageMismatch,
+    wordCount:          agentReply.trim().split(/\s+/).length,
+    questionCount:      (agentReply.match(/\?/g) ?? []).length,
+    fullText:           agentReply,
+  })
+  // ─────────────────────────────────────────────────────────────────────────
 
-    // Orijinal cevabın retry döngüsüne girmesi gerekip gerekmediğini belirle
-    let needsRetry = false
+  // Orijinal cevabın retry döngüsüne girmesi gerekip gerekmediğini belirle
+  let needsRetry = initialLanguageMismatch
 
-    if (initialGuard.verdict === 'blocked') {
-      console.warn('[Intake/guard] BLOCKED —', initialGuard.reason, '— retry döngüsü başlıyor')
+  if (initialLanguageMismatch) {
+    console.warn('[Intake/guard] LANGUAGE MISMATCH — beklenen:', sessionLanguage, '— retry döngüsü başlıyor')
+  }
+
+  if (initialGuard?.verdict === 'blocked') {
+    console.warn('[Intake/guard] BLOCKED —', initialGuard.reason, '— retry döngüsü başlıyor')
+    needsRetry = true
+  } else if (initialGuard?.verdict === 'risky') {
+    console.warn('[Intake/guard] RISKY — flags:', initialGuard.flags, '— isolated check başlıyor')
+    const initialCheck = await checkIntakeReplyIsolated(agentReply, openai, OPENAI_FAST_MODEL)
+    console.log('[Intake/guard] isolated check sonucu (orijinal):', initialCheck)
+    if (initialCheck.verdict === 'fail') {
+      console.warn('[Intake/guard] Isolated check FAIL —', initialCheck.reason, '— retry döngüsü başlıyor')
       needsRetry = true
-    } else if (initialGuard.verdict === 'risky') {
-      console.warn('[Intake/guard] RISKY — flags:', initialGuard.flags, '— isolated check başlıyor')
-      const initialCheck = await checkIntakeReplyIsolated(agentReply, openai, modelName)
-      console.log('[Intake/guard] isolated check sonucu (orijinal):', initialCheck)
-      if (initialCheck.verdict === 'fail') {
-        console.warn('[Intake/guard] Isolated check FAIL —', initialCheck.reason, '— retry döngüsü başlıyor')
-        needsRetry = true
-      }
-      // isolated check pass → needsRetry false, agentReply değişmez
     }
-    // clean → needsRetry false, agentReply değişmez
+    // isolated check pass → needsRetry (dil hariç) false, agentReply değişmez
+  }
+  // clean / skipped(complete) → needsRetry (dil hariç) false, agentReply değişmez
 
-    // ── Retry döngüsü — MAX_GUARD_RETRIES kez dene, her adımda tam doğrula ──
-    if (needsRetry) {
-      let accepted = false
+  // ── Retry döngüsü — MAX_GUARD_RETRIES kez dene, her adımda tam doğrula ──
+  if (needsRetry) {
+    let accepted = false
 
-      for (let attempt = 1; attempt <= MAX_GUARD_RETRIES; attempt++) {
-        console.warn(`[Intake/guard] Retry denemesi ${attempt}/${MAX_GUARD_RETRIES}`)
+    for (let attempt = 1; attempt <= MAX_GUARD_RETRIES; attempt++) {
+      console.warn(`[Intake/guard] Retry denemesi ${attempt}/${MAX_GUARD_RETRIES}`)
 
-        let candidateReply = ''
-        try {
-          const retryCompletion = await openai.chat.completions.create({
-            model:      modelName,
-            temperature: agentConfig.model?.temperature ?? 0.4,
-            max_tokens:  agentConfig.model?.max_tokens ?? 512,
-            messages:    openaiMessages,
-          })
-          candidateReply = retryCompletion.choices[0]?.message?.content?.trim() ?? ''
-        } catch (err) {
-          console.error(`[Intake/guard] Retry ${attempt} LLM çağrısı başarısız:`, err)
-          break  // LLM erişilemez — döngüyü kır, fallback'e düş
-        }
-
-        if (!candidateReply) {
-          console.warn(`[Intake/guard] Retry ${attempt} boş cevap döndürdü`)
-          continue
-        }
-
-        // Adım 1: kural filtresi
-        const retryGuard = applyIntakeGuard(candidateReply, agentMessageCount)
-        console.log(`[Intake/guard] Retry ${attempt} kural filtresi:`, {
-          verdict:       retryGuard.verdict,
-          flags:         'flags' in retryGuard ? retryGuard.flags : [],
-          wordCount:     candidateReply.trim().split(/\s+/).length,
-          questionCount: (candidateReply.match(/\?/g) ?? []).length,
-          fullText:      candidateReply,
+      let candidateReply = ''
+      let candidateIsComplete = false
+      let candidateLanguageMismatch = true
+      try {
+        const retryCompletion = await openai.chat.completions.create({
+          model:      modelName,
+          temperature: agentConfig.model?.temperature ?? 0.4,
+          max_tokens:  agentConfig.model?.max_tokens ?? 512,
+          messages:    openaiMessages,
+          response_format: INTAKE_REPLY_SCHEMA,
         })
-
-        if (retryGuard.verdict === 'blocked') {
-          console.warn(`[Intake/guard] Retry ${attempt} BLOCKED — bir sonraki denemeye geçiliyor`)
+        const rawCandidate = retryCompletion.choices[0]?.message?.content?.trim() ?? ''
+        const parsedCandidate = rawCandidate ? parseIntakeReply(rawCandidate) : null
+        if (!parsedCandidate) {
+          console.warn(`[Intake/guard] Retry ${attempt} JSON şemasına uymuyor veya boş`)
           continue
         }
-
-        // Adım 2: isolated LLM check — risky ve clean için de çalışır
-        // (risky cevaplar isolated check'ten geçmeden kabul edilmez)
-        const retryCheck = await checkIntakeReplyIsolated(candidateReply, openai, modelName)
-        console.log(`[Intake/guard] Retry ${attempt} isolated check:`, retryCheck)
-
-        if (retryCheck.verdict === 'pass') {
-          agentReply = candidateReply
-          accepted = true
-          console.log(`[Intake/guard] Retry ${attempt} KABUL EDİLDİ (kural: ${retryGuard.verdict}, check: pass)`)
-          break
-        }
-
-        console.warn(`[Intake/guard] Retry ${attempt} isolated check FAIL — ${retryCheck.reason}`)
+        candidateReply = parsedCandidate.message
+        candidateIsComplete = /<research_brief>/i.test(candidateReply)
+        candidateLanguageMismatch =
+          parsedCandidate.language !== sessionLanguage || !matchesExpectedLanguage(candidateReply, sessionLanguage)
+      } catch (err) {
+        console.error(`[Intake/guard] Retry ${attempt} LLM çağrısı başarısız:`, err)
+        break  // LLM erişilemez — döngüyü kır, fallback'e düş
       }
 
-      if (!accepted) {
-        console.warn(
-          `[Intake/guard] ${MAX_GUARD_RETRIES} retry sonrası kabul edilebilir cevap üretilemedi — fallback kullanılıyor`
-        )
-        agentReply = INTAKE_FALLBACK_MESSAGE
+      if (candidateLanguageMismatch) {
+        console.warn(`[Intake/guard] Retry ${attempt} LANGUAGE MISMATCH — bir sonraki denemeye geçiliyor`)
+        continue
       }
+
+      if (candidateIsComplete) {
+        agentReply = candidateReply
+        accepted = true
+        console.log(`[Intake/guard] Retry ${attempt} KABUL EDİLDİ (complete, dil uyumlu)`)
+        break
+      }
+
+      // Adım 1: kural filtresi
+      const retryGuard = applyIntakeGuard(candidateReply, agentMessageCount)
+      console.log(`[Intake/guard] Retry ${attempt} kural filtresi:`, {
+        verdict:       retryGuard.verdict,
+        flags:         'flags' in retryGuard ? retryGuard.flags : [],
+        wordCount:     candidateReply.trim().split(/\s+/).length,
+        questionCount: (candidateReply.match(/\?/g) ?? []).length,
+        fullText:      candidateReply,
+      })
+
+      if (retryGuard.verdict === 'blocked') {
+        console.warn(`[Intake/guard] Retry ${attempt} BLOCKED — bir sonraki denemeye geçiliyor`)
+        continue
+      }
+
+      // Adım 2: isolated LLM check — risky ve clean için de çalışır
+      // (risky cevaplar isolated check'ten geçmeden kabul edilmez)
+      const retryCheck = await checkIntakeReplyIsolated(candidateReply, openai, OPENAI_FAST_MODEL)
+      console.log(`[Intake/guard] Retry ${attempt} isolated check:`, retryCheck)
+
+      if (retryCheck.verdict === 'pass') {
+        agentReply = candidateReply
+        accepted = true
+        console.log(`[Intake/guard] Retry ${attempt} KABUL EDİLDİ (kural: ${retryGuard.verdict}, check: pass, dil uyumlu)`)
+        break
+      }
+
+      console.warn(`[Intake/guard] Retry ${attempt} isolated check FAIL — ${retryCheck.reason}`)
+    }
+
+    if (!accepted) {
+      console.warn(
+        `[Intake/guard] ${MAX_GUARD_RETRIES} retry sonrası kabul edilebilir cevap üretilemedi — fallback kullanılıyor`
+      )
+      agentReply = getIntakeFallbackMessage(sessionLanguage)
     }
   }
 

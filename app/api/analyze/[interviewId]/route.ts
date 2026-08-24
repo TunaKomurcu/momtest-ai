@@ -6,6 +6,7 @@ import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
 import { load as yamlLoad } from 'js-yaml'
+import { OPENAI_MODEL } from '@/lib/llm/config'
 import { buildAnalyzeGraph, buildInitialAnalyzeState } from '@/lib/graphs/analyze-graph'
 import type {
   ApiResponse,
@@ -288,7 +289,7 @@ export async function POST(
   const agentConfig = loadAgentConfig()
   const openai = new OpenAI({
     apiKey:   process.env.OPENAI_API_KEY,
-    baseURL:  agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
+    baseURL:  agentConfig.model?.base_url ?? 'https://api.openai.com/v1',
   })
 
   // ---------------------------------------------------------------------------
@@ -299,7 +300,7 @@ export async function POST(
   let rawAnalysisOutput: string
   try {
     const completion = await openai.chat.completions.create({
-      model:       agentConfig.model?.name ?? 'gemini-flash-latest',
+      model:       OPENAI_MODEL,
       temperature: 0.2,
       max_tokens:  agentConfig.model?.max_tokens ?? 2048,
       messages: [

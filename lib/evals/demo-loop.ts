@@ -16,6 +16,7 @@
 
 import { config } from 'dotenv'
 import OpenAI from 'openai'
+import { OPENAI_MODEL } from '@/lib/llm/config'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { load as yamlLoad } from 'js-yaml'
@@ -162,7 +163,7 @@ async function main() {
   const agentConfig = loadAgentConfig()
   const realOpenAI = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
+    baseURL: agentConfig.model?.base_url ?? 'https://api.openai.com/v1',
   })
 
   const userInput = 'We are building an AI tool that analyzes customer discovery interviews for B2B SaaS product managers.'
@@ -185,7 +186,7 @@ async function main() {
   const result1 = await callWithJsonRetry<FullResearchBrief>(
     openai1,
     {
-      model: agentConfig.model?.name ?? 'gemini-flash-latest',
+      model: OPENAI_MODEL,
       temperature: 0.3,
       max_tokens: 1500,
       stream: false,
@@ -225,7 +226,7 @@ async function main() {
   const result2 = await callWithJsonRetry<FullResearchBrief>(
     openai2,
     {
-      model: agentConfig.model?.name ?? 'gemini-flash-latest',
+      model: OPENAI_MODEL,
       temperature: 0.3,
       max_tokens: 1500,
       stream: false,
@@ -266,7 +267,7 @@ async function main() {
   const result3 = await callWithJsonRetry<FullResearchBrief>(
     openai3,
     {
-      model: agentConfig.model?.name ?? 'gemini-flash-latest',
+      model: OPENAI_MODEL,
       temperature: 0.3,
       max_tokens: 1500,
       stream: false,

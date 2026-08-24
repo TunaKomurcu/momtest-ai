@@ -14,6 +14,7 @@
 import { StateGraph, END, START } from '@langchain/langgraph'
 import { Annotation } from '@langchain/langgraph'
 import OpenAI from 'openai'
+import { OPENAI_MODEL } from '@/lib/llm/config'
 import { db } from '@/lib/db/index'
 import { interviews } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
@@ -157,7 +158,7 @@ Rules:
 function buildOpenAIClient(agentConfig: Partial<OpenAIAgentConfig>): OpenAI {
   return new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
+    baseURL: agentConfig.model?.base_url ?? 'https://api.openai.com/v1',
   })
 }
 
@@ -296,7 +297,7 @@ async function retryAnalysisNode(
   const result = await callWithJsonRetry<StructuredAnalysis>(
     openai,
     {
-      model:       agentConfig.model?.name ?? 'gemini-flash-latest',
+      model:       OPENAI_MODEL,
       temperature: 0.2,
       max_tokens:  agentConfig.model?.max_tokens ?? 2048,
       stream:      false,
@@ -365,7 +366,7 @@ async function groundingRetryNode(
   const retriedAnalysis = await callWithJsonRetry<StructuredAnalysis>(
     openai,
     {
-      model:       agentConfig.model?.name ?? 'gemini-flash-latest',
+      model:       OPENAI_MODEL,
       temperature: 0.1,
       max_tokens:  agentConfig.model?.max_tokens ?? 2048,
       stream:      false,

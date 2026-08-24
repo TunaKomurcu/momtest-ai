@@ -131,18 +131,28 @@ Fill in `.env.local`:
 ```bash
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/momtest
 OPENAI_API_KEY=sk-proj-...
+OPENAI_MODEL=gpt-4o             # optional — defaults to gpt-4o if unset
+OPENAI_FAST_MODEL=gpt-4o-mini   # optional — defaults to gpt-4o-mini if unset
 MAKE_WEBHOOK_INTERVIEW_URL=   # optional
 MAKE_WEBHOOK_ANALYSIS_URL=    # optional
 ```
 
-### 5. Configure the LLM provider (optional)
+### 5. Configure the model (optional)
 
-Edit `mom-test-customer-discovery/agents/openai.yaml` to change the model or provider:
+Two models are used, both configurable without a code change (see `lib/llm/config.ts`):
+
+- **`OPENAI_MODEL`** (default `gpt-4o`) — the interviewer, PM intake dialogue, and brief/script/analysis generation. Where nuance, methodology, and strict constraint-following matter.
+- **`OPENAI_FAST_MODEL`** (default `gpt-4o-mini`) — the isolated guard checkers and vagueness classifier. Single-turn pass/fail judgments, not open-ended generation, so the cheaper model is reliable here.
+
+```bash
+OPENAI_MODEL=gpt-4o-mini npm run dev   # cheaper/faster primary model, weaker constraint adherence
+```
+
+`mom-test-customer-discovery/agents/openai.yaml` still controls `base_url`, `temperature`, and `max_tokens` (e.g. to point at a different OpenAI-compatible provider):
 
 ```yaml
 model:
   provider: "groq"
-  name: "llama-3.3-70b-versatile"
   base_url: "https://api.groq.com/openai/v1"
   temperature: 0.7
   max_tokens: 1024

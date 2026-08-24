@@ -126,6 +126,37 @@ export interface ConversationMessage {
 }
 
 // ---------------------------------------------------------------------------
+// Structured output payloads — response_format: json_schema
+// (bkz. app/api/interview/[interviewId]/route.ts, app/api/intake/[projectId]/route.ts)
+// ---------------------------------------------------------------------------
+
+export type InterviewLanguage = 'tr' | 'en'
+
+/**
+ * Interviewer LLM'in her turda dönmesi gereken JSON şekli.
+ * "message" dışında hiçbir alan katılımcıya gösterilmez.
+ */
+export interface InterviewReplyPayload {
+  language: InterviewLanguage
+  message: string
+  isClosing: boolean
+}
+
+/**
+ * Intake LLM'inin her turda dönmesi gereken JSON şekli.
+ * research_brief artık <research_brief> XML tag'i regex ile parse edilmiyor —
+ * doğrudan bu alan üzerinden taşınır. isComplete false iken researchBrief
+ * alanları boş string/dizi olabilir — tüketen kod bu alanı yalnızca
+ * isComplete true olduğunda okur.
+ */
+export interface IntakeReplyPayload {
+  language: InterviewLanguage
+  message: string
+  isComplete: boolean
+  researchBrief: ResearchBrief
+}
+
+// ---------------------------------------------------------------------------
 // Generate API — app/api/generate/[projectId]/route.ts
 // ---------------------------------------------------------------------------
 

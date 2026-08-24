@@ -16,6 +16,7 @@
 import { StateGraph, END, START } from '@langchain/langgraph'
 import { Annotation } from '@langchain/langgraph'
 import OpenAI from 'openai'
+import { OPENAI_MODEL } from '@/lib/llm/config'
 import { db } from '@/lib/db/index'
 import { projects } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
@@ -154,7 +155,7 @@ Consider every assumptionMap row individually. If a question does not clearly te
 function buildOpenAIClient(agentConfig: Partial<OpenAIAgentConfig>): OpenAI {
   return new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL: agentConfig.model?.base_url ?? 'https://api.groq.com/openai/v1',
+    baseURL: agentConfig.model?.base_url ?? 'https://api.openai.com/v1',
   })
 }
 
@@ -192,7 +193,7 @@ async function retryBriefNode(
   const result = await callWithJsonRetry<FullResearchBrief>(
     openai,
     {
-      model: agentConfig.model?.name ?? 'gemini-flash-latest',
+      model: OPENAI_MODEL,
       temperature: agentConfig.model?.temperature ?? 0.3,
       max_tokens: agentConfig.model?.max_tokens ?? 1500,
       stream: false,
@@ -249,7 +250,7 @@ async function retryScriptNode(
   const result = await callWithJsonRetry<InterviewScript>(
     openai,
     {
-      model: agentConfig.model?.name ?? 'gemini-flash-latest',
+      model: OPENAI_MODEL,
       temperature: agentConfig.model?.temperature ?? 0.4,
       max_tokens: agentConfig.model?.max_tokens ?? 2000,
       stream: false,
@@ -287,7 +288,7 @@ async function critiqueScriptNode(
   const critique = await callWithJsonRetry<ScriptCritique>(
     openai,
     {
-      model: agentConfig.model?.name ?? 'gemini-flash-latest',
+      model: OPENAI_MODEL,
       temperature: agentConfig.model?.temperature ?? 0.3,
       max_tokens: agentConfig.model?.max_tokens ?? 500,
       stream: false,
@@ -327,7 +328,7 @@ async function coverageRetryScriptNode(
   const result = await callWithJsonRetry<InterviewScript>(
     openai,
     {
-      model: agentConfig.model?.name ?? 'gemini-flash-latest',
+      model: OPENAI_MODEL,
       temperature: agentConfig.model?.temperature ?? 0.4,
       max_tokens: agentConfig.model?.max_tokens ?? 2000,
       stream: false,

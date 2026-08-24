@@ -37,6 +37,8 @@ Create `.env.local`:
 ```
 DATABASE_URL=postgresql://momtest:momtest@localhost:5432/momtest
 OPENAI_API_KEY=sk-proj-...
+OPENAI_MODEL=gpt-4o
+OPENAI_FAST_MODEL=gpt-4o-mini
 MAKE_WEBHOOK_INTERVIEW_URL=
 MAKE_WEBHOOK_ANALYSIS_URL=
 ```
@@ -101,11 +103,13 @@ curl -i https://momtest-demo.online/api/projects
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DATABASE_URL` | ✅ | PostgreSQL connection string |
-| `OPENAI_API_KEY` | ✅ | LLM provider API key (OpenAI / Groq / Google) |
+| `OPENAI_API_KEY` | ✅ | OpenAI API key |
+| `OPENAI_MODEL` | ❌ | Primary conversational model (default: `gpt-4o`, see `lib/llm/config.ts`) |
+| `OPENAI_FAST_MODEL` | ❌ | Guard/classifier model (default: `gpt-4o-mini`) |
 | `MAKE_WEBHOOK_INTERVIEW_URL` | ❌ | Make.com webhook — interview completed event |
 | `MAKE_WEBHOOK_ANALYSIS_URL` | ❌ | Make.com webhook — analysis completed event |
 
-To switch LLM providers, update `base_url` and `model.name` in `mom-test-customer-discovery/agents/openai.yaml`. No code changes required.
+To change the model, set `OPENAI_MODEL` — no code change or rebuild required. To point at a different OpenAI-compatible provider, update `base_url` in `mom-test-customer-discovery/agents/openai.yaml`.
 
 ---
 
