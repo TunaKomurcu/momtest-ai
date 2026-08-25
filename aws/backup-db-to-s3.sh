@@ -62,15 +62,30 @@ if [[ -z "$database_url" || "$database_url" == "None" ]]; then
   fail 1 "DATABASE_URL secret is empty"
 fi
 
-log "Running pg_dump inside ${DB_CONTAINER}..."
-if ! printf '%s' "$database_url" \
-    | docker exec -i "$DB_CONTAINER" sh -c 'read -r url && pg_dump --clean --if-exists "$url"' \
-    | gzip > "$LOCAL_FILE"; then
+# DATABASE_URL points at host "db" — the app-net alias other containers use
+# to reach momtest-db over the network. pg_dump here runs *inside*
+# momtest-db itself, where that alias does not resolve, so rewrite the host
+# to 127.0.0.1 for this in-container connection.
+if [[ "$database_url" != *"@db:"* ]]; then
   unset database_url
-  rm -f "$LOCAL_FILE"
-  fail 2 "pg_dump (or gzip) failed while producing ${LOCAL_FILE}"
+  fail 1 "DATABASE_URL does not contain the expected '@db:' host segment; cannot rewrite for in-container connection"
 fi
+local_database_url="${database_url/@db:/@127.0.0.1:}"
 unset database_url
+
+PG_DUMP_STDERR_FILE="$(mktemp)"
+trap 'rm -f "$PG_DUMP_STDERR_FILE"' EXIT
+
+log "Running pg_dump inside ${DB_CONTAINER}..."
+if ! printf '%s' "$local_database_url" \
+    | docker exec -i "$DB_CONTAINER" sh -c 'read -r url && pg_dump --clean --if-exists "$url"' \
+    2>"$PG_DUMP_STDERR_FILE" \
+    | gzip > "$LOCAL_FILE"; then
+  unset local_database_url
+  rm -f "$LOCAL_FILE"
+  fail 2 "pg_dump (or gzip) failed while producing ${LOCAL_FILE}. pg_dump stderr: $(cat "$PG_DUMP_STDERR_FILE" 2>/dev/null)"
+fi
+unset local_database_url
 
 if [[ ! -s "$LOCAL_FILE" ]]; then
   rm -f "$LOCAL_FILE"
