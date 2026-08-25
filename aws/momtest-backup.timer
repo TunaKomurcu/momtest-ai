@@ -1,0 +1,16 @@
+# Deploy to /etc/systemd/system/momtest-backup.timer on the EC2 host:
+#   sudo cp aws/momtest-backup.timer /etc/systemd/system/momtest-backup.timer
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now momtest-backup.timer
+#
+# Equivalent crontab schedule, for reference: 0 3 * * * (03:00 UTC daily)
+
+[Unit]
+Description=Daily timer for MomTest AI database backup (momtest-backup.service)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

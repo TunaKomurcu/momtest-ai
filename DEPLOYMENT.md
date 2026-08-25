@@ -96,6 +96,88 @@ curl -i https://momtest-demo.online/api/projects
 # Expected: HTTP 200, {"data":[...],"error":null}
 ```
 
+### Backups
+
+Daily automated PostgreSQL backups to S3 replace the need for RDS-managed backups.
+
+| Resource | Value |
+|----------|-------|
+| S3 bucket | `momtest-ai-storage-820140266422` (eu-central-1, private, SSE-S3, all public access blocked) |
+| Backup prefix | `backups/database/` |
+| Retention | 14 days, via S3 Lifecycle Rule (`aws/s3-lifecycle-momtest-ai-storage.json`) — not script-side deletion |
+| Reserved prefix | `reports/` — for future report exports, covered by the same IAM policy |
+| Script | `aws/backup-db-to-s3.sh` |
+| Schedule | `momtest-backup.timer` (systemd), daily `03:00 UTC` — equivalent crontab: `0 3 * * *` |
+| IAM policy | `MomtestAiS3BackupAccess`, attached to `MomtestAiEc2Role` (`aws/momtest-ai-s3-backup-policy.json`) |
+
+This host (Amazon Linux 2023) has no `cron`/`crond` installed by default — the backup uses a systemd timer, the same pattern already used for `certbot-renew.timer`.
+
+The script fetches `momtest-ai/DATABASE_URL` from Secrets Manager (the container requires password auth, not trust auth), pipes it into `docker exec momtest-db pg_dump --clean --if-exists` over stdin (never as a CLI argument, to avoid it appearing in `ps aux`), gzips the result, uploads to S3, verifies via `head-object`, and only then deletes the local temp file. Exit codes: `0` success, `1` env/dependency error, `2` dump failed, `4` upload failed, `5` verification failed.
+
+Setup on the EC2 host:
+```bash
+chmod +x /opt/momtest-ai/aws/backup-db-to-s3.sh   # git doesn't track the executable bit on this repo
+sudo cp aws/momtest-backup.service /etc/systemd/system/momtest-backup.service
+sudo cp aws/momtest-backup.timer /etc/systemd/system/momtest-backup.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now momtest-backup.timer
+```
+
+Verify:
+```bash
+sudo systemctl list-timers momtest-backup.timer
+sudo systemctl start momtest-backup.service   # manual trigger, don't wait for 03:00
+sudo journalctl -u momtest-backup.service --since today
+tail -n 50 /var/log/momtest-backup.log
+aws s3 ls s3://momtest-ai-storage-820140266422/backups/database/ --region eu-central-1
+```
+
+**Disaster recovery — restore the latest backup:**
+```bash
+LATEST_KEY=$(aws s3api list-objects-v2 \
+  --bucket momtest-ai-storage-820140266422 --prefix backups/database/ \
+  --query 'sort_by(Contents,&LastModified)[-1].Key' --output text --region eu-central-1)
+
+aws s3 cp "s3://momtest-ai-storage-820140266422/${LATEST_KEY}" - --region eu-central-1 \
+  | gunzip \
+  | docker exec -i momtest-db psql -U momtest momtest
+```
+The dump uses `--clean --if-exists`, so it's safe to pipe directly into a live database — but this still overwrites current data. Treat it as a deliberate manual action: stop the `momtest-app` container first so nothing writes to the database mid-restore.
+
+### Monitoring
+
+CloudWatch Agent tracks memory and swap usage (not covered by default EC2 metrics) and alerts via SNS when either exceeds 85% for 2 consecutive 5-minute periods.
+
+| Resource | Value |
+|----------|-------|
+| Metrics namespace | `MomtestAI/EC2` |
+| Metrics collected | `mem_used_percent`, `swap_used_percent` (60s interval) |
+| Config | `aws/amazon-cloudwatch-agent.json` → deployed to `/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json` |
+| Swapfile | 1 GB, `/swapfile`, persisted in `/etc/fstab` (t3.micro has 1 GB RAM and no swap by default) |
+| SNS topic | `momtest-ai-alerts` — email subscription requires a one-time confirmation click |
+| Alarms | `MomtestAI-EC2-HighMemoryUsage`, `MomtestAI-EC2-HighSwapUsage` — threshold 85%, 2×5min periods |
+
+Install and start the agent:
+```bash
+sudo dnf install -y amazon-cloudwatch-agent
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 -s \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+sudo systemctl status amazon-cloudwatch-agent
+```
+
+`CloudWatchAgentServerPolicy` was already attached to `MomtestAiEc2Role` at initial provisioning — no new IAM policy is needed for the agent itself.
+
+Verify metrics are flowing:
+```bash
+aws cloudwatch get-metric-statistics \
+  --namespace "MomtestAI/EC2" --metric-name mem_used_percent \
+  --dimensions Name=InstanceId,Value=i-04033337a3ad94650 \
+  --start-time "$(date -u -d '-30 minutes' '+%Y-%m-%dT%H:%M:%S')" \
+  --end-time "$(date -u '+%Y-%m-%dT%H:%M:%S')" \
+  --period 60 --statistics Average --region eu-central-1
+```
+
 ---
 
 ## Environment Variables Reference
@@ -134,6 +216,10 @@ Runtime secrets (`OPENAI_API_KEY`, `DATABASE_URL`) live in AWS Secrets Manager. 
 ### PostgreSQL in Docker over RDS
 
 RDS costs ~$15-25/month and exceeds the current budget. PostgreSQL runs in a Docker container on the same EC2 instance with a named volume for persistence. Migrating to RDS later requires only updating the `DATABASE_URL` secret — no code changes.
+
+### S3 + systemd timer over Lambda/RDS-automated-backups
+
+Without RDS there's no built-in automated snapshot feature to rely on. Rather than add Lambda/SQS to orchestrate backups, a plain bash script (`aws/backup-db-to-s3.sh`) runs on the EC2 host itself via a systemd timer and uploads straight to S3. Retention is handled by an S3 Lifecycle Rule rather than script logic, so a bug or a skipped run can't leave old backups un-pruned or delete backups it shouldn't.
 
 ---
 

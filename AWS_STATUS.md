@@ -521,7 +521,7 @@ Date: 2026-08-24
 **Known Limitations:**
 - Single EC2 instance (no high availability)
 - Single database container (no replication)
-- No automated backups (rely on manual pg_dump)
+- ~~No automated backups (rely on manual pg_dump)~~ — resolved in Step 12 (daily automated S3 backups + memory/swap alerting)
 - RDS auto-restart risk after 7 days
 - Manual cost monitoring required
 
@@ -678,3 +678,82 @@ Date: 2026-08-24
 - Certbot pip ile kuruldu; sistem dnf güncelleme döngüsünün dışında. Python 3.9 desteği bir sonraki certbot sürümünde düşecek — gerekirse `sudo pip3 install --upgrade certbot certbot-nginx` ile güncelle.
 - EC2 instance terminate edilmeden Elastic IP `3.73.201.29` boşta bırakılmamalı (~$0.005/saat ücretlenir). Instance silinecekse önce `aws ec2 release-address --allocation-id eipalloc-007430fb454a9557d` çalıştır.
 - Sertifika 90 günde bir yenilenir. Renewal başarısız olursa Let's Encrypt `tunakomurcu@gmail.com` adresine uyarı emaili gönderir (30, 20, 10 gün kala).
+
+## Step 12 — S3 Backups + CloudWatch Monitoring
+
+Date: 2026-08-25
+
+### S3 Bucket
+
+- Bucket: `momtest-ai-storage-820140266422`, region `eu-central-1`
+- Public access: fully blocked (`BlockPublicAcls`, `IgnorePublicAcls`, `BlockPublicPolicy`, `RestrictPublicBuckets` all `true`)
+- Encryption: SSE-S3 (AES256) by default, bucket key enabled
+- Versioning: deliberately **off** — every backup object has a unique timestamped key, so there's nothing to protect via versioning; enabling it would only add cost/complexity with no benefit
+- Lifecycle rule: `ExpireDatabaseBackupsAfter14Days`, scoped to prefix `backups/database/`, defined in `aws/s3-lifecycle-momtest-ai-storage.json` — retention is bucket-side (S3-native), not script-side, so a script bug or a skipped run can't leave old backups un-pruned
+- Reserved prefix `reports/` for future report exports — no bucket action needed, materializes on first `PutObject`, already covered by the IAM policy below
+
+### IAM
+
+- New customer-managed policy: `MomtestAiS3BackupAccess` (`aws/momtest-ai-s3-backup-policy.json`), ARN `arn:aws:iam::820140266422:policy/MomtestAiS3BackupAccess`
+  - `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject` scoped to `arn:aws:s3:::momtest-ai-storage-820140266422/*`
+  - `s3:ListBucket` scoped to `arn:aws:s3:::momtest-ai-storage-820140266422`
+- Attached to the existing `MomtestAiEc2Role` (no new role created)
+- `CloudWatchAgentServerPolicy` was already attached to `MomtestAiEc2Role` at initial provisioning (Step 1) and covers `cloudwatch:PutMetricData` — **confirmed sufficient, no new CloudWatch IAM policy was needed**
+
+### Backup Script
+
+- `aws/backup-db-to-s3.sh`, scheduled via `momtest-backup.timer` (systemd) — this host has no `cron`/`crond` installed by default (Amazon Linux 2023), same reasoning as `certbot-renew.timer` in Step 11. Equivalent crontab expression, for reference: `0 3 * * *` (daily 03:00 UTC).
+- Auth correction vs. the original plan: `momtest-db` requires password auth (see Step 4 — the container was deliberately recreated with `POSTGRES_USER=momtest` and a matching password, not trust auth). The script fetches `momtest-ai/DATABASE_URL` from Secrets Manager (already permitted via `MomtestAiSecretsReadOnly`, no new IAM needed for this part) and pipes it into `docker exec momtest-db pg_dump --clean --if-exists` over **stdin**, never as a CLI argument, to avoid the credential appearing in `ps aux` output.
+- `--clean --if-exists` makes the dump safe to restore directly into a live database.
+- Exit codes: `0` success, `1` env/dependency error, `2` dump failed, `4` S3 upload failed, `5` upload verification (`head-object`) failed.
+- Logs to both stdout (captured by journald) and `/var/log/momtest-backup.log` with UTC timestamps.
+- systemd units: `momtest-backup.service` (`Type=oneshot`, `User=root` — matches `certbot-renew.service`'s trust tier; `/opt/momtest-ai` is root-owned) and `momtest-backup.timer` (`OnCalendar=*-*-* 03:00:00 UTC`, `Persistent=true`).
+
+_First verified run — fill in after `sudo systemctl start momtest-backup.service`:_
+- Object key: `TBD`
+- Size: `TBD`
+- `head-object` result: `TBD`
+
+### Swapfile
+
+- 1 GB swapfile at `/swapfile`, persisted via `/etc/fstab`
+- Reason: the t3.micro instance has 1 GB RAM and no swap was configured previously (confirmed via full-text search of this document — no prior mention). Without it, `swap_used_percent` would always read 0% and the swap alarm below would be permanently meaningless.
+
+### CloudWatch Agent
+
+- Installed via `sudo dnf install -y amazon-cloudwatch-agent` (present in AL2023 default repos, no S3-hosted package download needed)
+- Config: `aws/amazon-cloudwatch-agent.json` → deployed to `/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json`
+- Namespace: `MomtestAI/EC2`, metrics: `mem_used_percent`, `swap_used_percent`, 60s collection interval
+
+_Verification — fill in after first `get-metric-statistics` call:_
+- `mem_used_percent` sample: `TBD`
+- `swap_used_percent` sample: `TBD`
+
+### SNS + Alarms
+
+- SNS topic: `momtest-ai-alerts`, ARN `arn:aws:sns:eu-central-1:820140266422:momtest-ai-alerts`
+- Email subscription: `tunakomurcu@gmail.com` — requires a one-time confirmation click before alarms actually deliver email
+- Alarms (both `--comparison-operator GreaterThanThreshold`, `--period 300`, `--evaluation-periods 2` = 10 minutes sustained, `--treat-missing-data missing`, both `--alarm-actions` and `--ok-actions` pointed at the SNS topic so recovery is also notified):
+  - `MomtestAI-EC2-HighMemoryUsage` — `mem_used_percent > 85`
+  - `MomtestAI-EC2-HighSwapUsage` — `swap_used_percent > 85`
+
+### Summary
+
+**Current Architecture (updated):**
+- EC2 t3.micro with containerized app and database, now with automated daily backups and RAM/swap alerting
+- Backups: S3, 14-day retention, no external database costs
+- Monitoring: CloudWatch custom metrics + SNS email alerts
+
+#### Maliyet
+
+- S3 storage for ~14 days of gzipped Postgres dumps at this scale: negligible (well under $0.01/month)
+- 2 CloudWatch alarms + custom metrics: within/near AWS Free Tier
+- SNS email delivery: free at this volume
+- No new EC2, RDS, Lambda, or SQS costs
+
+#### Bilinen Kısıtlamalar (Güncel)
+
+- Single EC2 instance, single database container — unchanged (no HA/replication)
+- Backups are database-only (schema + data via `pg_dump`); they do not cover the EC2 instance itself (AMI/config) — acceptable given `ec2-user-data.sh` + this repo can rebuild the host from scratch
+- SNS email subscription must be manually confirmed after `aws sns subscribe` — not automatable via CLI
+- Swap alarm's usefulness depends on the swapfile actually being provisioned as documented above; verify with `swapon --show` if it's ever missing after an instance replacement

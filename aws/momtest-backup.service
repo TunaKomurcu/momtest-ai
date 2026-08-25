@@ -1,0 +1,17 @@
+# Deploy to /etc/systemd/system/momtest-backup.service on the EC2 host:
+#   sudo cp aws/momtest-backup.service /etc/systemd/system/momtest-backup.service
+#   sudo systemctl daemon-reload
+#
+# This host runs Amazon Linux 2023, which has no cron/crond installed by
+# default — this unit pairs with momtest-backup.timer instead, following the
+# same pattern already used for certbot-renew.timer/.service on this host.
+
+[Unit]
+Description=MomTest AI — daily database backup to S3
+Wants=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/momtest-ai/aws/backup-db-to-s3.sh

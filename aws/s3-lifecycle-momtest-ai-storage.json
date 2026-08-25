@@ -1,0 +1,14 @@
+{
+  "Rules": [
+    {
+      "ID": "ExpireDatabaseBackupsAfter14Days",
+      "Filter": {
+        "Prefix": "backups/database/"
+      },
+      "Status": "Enabled",
+      "Expiration": {
+        "Days": 14
+      }
+    }
+  ]
+}
