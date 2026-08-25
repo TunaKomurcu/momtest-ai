@@ -16,6 +16,8 @@
     "demo:harness": "tsx lib/evals/demo-harness.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.703.0",
+    "@aws-sdk/s3-request-presigner": "^3.703.0",
     "@base-ui/react": "^1.6.0",
     "@langchain/core": "0.3.62",
     "@langchain/langgraph": "0.2.42",

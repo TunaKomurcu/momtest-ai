@@ -1,0 +1,13 @@
+# Deploy to /etc/systemd/system/momtest-docker-cleanup.service on the EC2 host:
+#   sudo cp aws/momtest-docker-cleanup.service /etc/systemd/system/momtest-docker-cleanup.service
+#   sudo systemctl daemon-reload
+
+[Unit]
+Description=MomTest AI — weekly Docker disk cleanup
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/momtest-ai/aws/cleanup-docker.sh

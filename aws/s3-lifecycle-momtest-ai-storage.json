@@ -9,6 +9,39 @@
       "Expiration": {
         "Days": 14
       }
+    },
+    {
+      "ID": "ExpireTempAudioUploadsAfter48Hours",
+      "Filter": {
+        "Prefix": "uploads/audio/"
+      },
+      "Status": "Enabled",
+      "Expiration": {
+        "Days": 2
+      }
+    },
+    {
+      "ID": "TransitionReportExportsToGlacierAfter90Days",
+      "Filter": {
+        "Prefix": "exports/reports/"
+      },
+      "Status": "Enabled",
+      "Transitions": [
+        {
+          "Days": 90,
+          "StorageClass": "GLACIER"
+        }
+      ]
+    },
+    {
+      "ID": "AbortIncompleteMultipartUploadsAfter7Days",
+      "Filter": {
+        "Prefix": ""
+      },
+      "Status": "Enabled",
+      "AbortIncompleteMultipartUpload": {
+        "DaysAfterInitiation": 7
+      }
     }
   ]
 }

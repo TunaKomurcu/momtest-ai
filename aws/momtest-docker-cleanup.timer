@@ -1,0 +1,14 @@
+# Deploy to /etc/systemd/system/momtest-docker-cleanup.timer on the EC2 host:
+#   sudo cp aws/momtest-docker-cleanup.timer /etc/systemd/system/momtest-docker-cleanup.timer
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now momtest-docker-cleanup.timer
+
+[Unit]
+Description=Weekly timer for MomTest AI Docker disk cleanup (momtest-docker-cleanup.service)
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
