@@ -62,30 +62,39 @@ if [[ -z "$database_url" || "$database_url" == "None" ]]; then
   fail 1 "DATABASE_URL secret is empty"
 fi
 
-# DATABASE_URL points at host "db" — the app-net alias other containers use
-# to reach momtest-db over the network. pg_dump here runs *inside*
-# momtest-db itself, where that alias does not resolve, so rewrite the host
-# to 127.0.0.1 for this in-container connection.
-if [[ "$database_url" != *"@db:"* ]]; then
+# Parse user/password/dbname out of DATABASE_URL (postgresql://user:pass@host:port/db)
+# so pg_dump can be run directly via `docker exec` with -U/-d flags and a
+# PGPASSWORD env var, instead of piping a connection URI through a subshell.
+# (The previous stdin/`read` approach silently failed: `read` returns
+# non-zero at EOF when the piped input has no trailing newline, so the `&&`
+# after it short-circuited and pg_dump never ran — hence the empty stderr.)
+# Host/port from the URL are irrelevant here: pg_dump connects via the
+# container's local Unix socket since no -h is given, so DATABASE_URL's
+# "db" network alias (which only resolves for *other* containers) is a
+# non-issue too.
+if [[ "$database_url" =~ ^postgres[a-z]*://([^:@]+):([^@]+)@[^/]+/([^?]+) ]]; then
+  DB_USER="${BASH_REMATCH[1]}"
+  DB_PASS="${BASH_REMATCH[2]}"
+  DB_NAME="${BASH_REMATCH[3]}"
+else
   unset database_url
-  fail 1 "DATABASE_URL does not contain the expected '@db:' host segment; cannot rewrite for in-container connection"
+  fail 1 "could not parse user/password/dbname out of DATABASE_URL"
 fi
-local_database_url="${database_url/@db:/@127.0.0.1:}"
 unset database_url
 
 PG_DUMP_STDERR_FILE="$(mktemp)"
 trap 'rm -f "$PG_DUMP_STDERR_FILE"' EXIT
 
 log "Running pg_dump inside ${DB_CONTAINER}..."
-if ! printf '%s' "$local_database_url" \
-    | docker exec -i "$DB_CONTAINER" sh -c 'read -r url && pg_dump --clean --if-exists "$url"' \
+if ! docker exec -e PGPASSWORD="$DB_PASS" "$DB_CONTAINER" \
+    pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists \
     2>"$PG_DUMP_STDERR_FILE" \
     | gzip > "$LOCAL_FILE"; then
-  unset local_database_url
+  unset DB_PASS
   rm -f "$LOCAL_FILE"
   fail 2 "pg_dump (or gzip) failed while producing ${LOCAL_FILE}. pg_dump stderr: $(cat "$PG_DUMP_STDERR_FILE" 2>/dev/null)"
 fi
-unset local_database_url
+unset DB_PASS
 
 if [[ ! -s "$LOCAL_FILE" ]]; then
   rm -f "$LOCAL_FILE"
